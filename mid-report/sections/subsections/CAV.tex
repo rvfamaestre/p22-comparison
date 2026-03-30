@@ -46,15 +46,4 @@ k_s ( s_i - s_i^{\mathrm{ref}} )
 k_v \Delta v_i,
 \end{equation}
 
-where $k_s > 0$ and $k_v > 0$ denote the spacing and velocity feedback gains, respectively. This control law constitutes a linear realization of the CTH policy and is consistent with the mesoscopic ACC formulation proposed in \cite{Mirabilio.2023}.
-
-An important property of the CTH-based ACC strategy is its capability to guarantee weak string stability using only local measurements \cite{Swaroop.2001}. In the frequency domain, the disturbance propagation transfer function satisfies
-\begin{equation}
-\| H(j\omega) \|_{\infty} \le 1,
-\end{equation}
-ensuring that spacing disturbances are not amplified upstream along a vehicle string.
-Moreover, robustness with respect to sensing and actuation delays imposes a constraint on the admissible implementation lag. In particular, the total delay must satisfy
-\begin{equation}
-T_C \le \frac{h_w}{2},
-\end{equation}
-indicating that allowable delay is directly limited by the chosen time headway \cite{Swaroop.2001}.
+where $k_s > 0$ and $k_v > 0$ denote the spacing and velocity feedback gains, respectively. This controller constitutes a linear realization of the CTH policy consistent with \cite{Mirabilio.2023}. The CTH strategy guarantees weak string stability ($\| H(j\omega) \|_{\infty} \le 1$) using only local measurements \cite{Swaroop.2001}.

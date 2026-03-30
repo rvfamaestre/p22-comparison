@@ -1,4 +1,4 @@
 \subsection{A Short Description}
-The modernization of intelligent transportation systems (ITS) has necessitated a paradigm shift from individual vehicle autonomy to cooperative automation. Vehicular platooning offers a promising solution to traffic congestion, fuel inefficiency, and road safety. 
+This project studies mixed traffic on a ring road where human-driven vehicles (HDVs) and connected autonomous vehicles (CAVs) share the same lane. The objective is to reduce traffic-wave amplification without giving up the robustness of a standard longitudinal controller.
 
-Thus, our work motivates an "Adaptive Hybrid Control strategy" using RL to adjust the weight between micro and macro. This transition from the standard Adaptive Cruise Control (ACC) to Cooperative Adaptive Cruise Control (CACC) introduces challenges in string stability, the ability to attenuate disturbances, especially under communication delays.
+Our approach keeps a microscopic car-following controller at vehicle level and adds a mesoscopic adaptation layer that reacts to upstream traffic conditions. Reinforcement learning is used only as a residual correction around a rule-based baseline, so the controller remains interpretable while still being able to adapt to traffic patterns that are difficult to encode by hand.

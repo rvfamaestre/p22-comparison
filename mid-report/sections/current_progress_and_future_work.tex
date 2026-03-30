@@ -2,13 +2,13 @@
 
 \subsection{Protocol and admissibility fix}
 
-The experiment targets the 50\,\% human-driver regime on a ring road with $N{=}22$ vehicles ($L{=}300$\,m). Three methods are compared: the rule-based mesoscopic adaptation alone (\textbf{No~RL}), and two residual RL policies (\textbf{PPO}, \textbf{SAC}) trained on top of it. Each episode starts from random initial conditions; a velocity perturbation ($\Delta v = {-}3$\,m/s) is applied at $t{=}12$\,s after a 10\,s warm-up. The primary metric is the \emph{string-stability amplification ratio}: the maximum downstream-to-source speed-error ratio, where a value below~1 indicates disturbance attenuation.
+The experiment targets the 50\,\% human-driver regime on a ring road with $N{=}22$ vehicles ($L{=}300$\,m). We compare three methods: the rule-based mesoscopic adaptation alone (\textbf{No~RL}), and two residual RL policies (\textbf{PPO}, \textbf{SAC}) trained on top of it. Each episode starts from random initial conditions, and a velocity perturbation ($\Delta v = {-}3$\,m/s) is applied at $t{=}12$\,s after a 10\,s warm-up. The primary metric is the \emph{string-stability amplification ratio}: the maximum downstream-to-source speed-error ratio, where a value below~1 indicates disturbance attenuation.
 
-A critical protocol bug was found and fixed before this campaign. The random initialization computed minimum inter-vehicle spacing without accounting for vehicle length ($\ell{=}5$\,m), producing net bumper-to-bumper gaps as low as 0\,m. Combined with a warm-up that also capped braking, every prior run suffered collision-clamp events \emph{before} the perturbation, invalidating string-stability. The fix added vehicle length to the spacing bound, clamped initial closing rates to be kinematically safe, and allowed unrestricted braking during warm-up. After the fix, 50/50 random seeds produced zero pre-perturbation clamps.
+A critical protocol bug was found and fixed before this campaign. The random initialization computed minimum inter-vehicle spacing without accounting for vehicle length ($\ell{=}5$\,m), producing net bumper-to-bumper gaps as low as 0\,m. Combined with a warm-up that also capped braking, earlier runs suffered collision-clamp events \emph{before} the perturbation, invalidating string-stability. The fix added vehicle length to the spacing bound, clamped initial closing rates to be kinematically safe, and allowed unrestricted braking during warm-up. In the saved training and evaluation runs used for this report, the pre-perturbation clamp count is zero throughout.
 
 \subsection{Results}
 
-Both RL methods early-stopped quickly (PPO at episode~15, SAC at~21), with best checkpoints at episodes~4 and~6. This reflects the limited residual authority ($|\Delta\alpha| \leq 0.1$): the policy reaches its useful range almost immediately and subsequent updates add noise. Zero collision clamps were observed throughout training, confirming the initialization fix.
+Both RL methods early-stopped quickly (PPO at episode~15, SAC at~21), with best checkpoints at episodes~4 and~6. In practice, most of the useful learning happened almost immediately. Given the limited residual authority ($|\Delta\alpha| \leq 0.1$), this is not surprising: the policy can refine the baseline, but it cannot move very far away from it. Zero collision clamps were observed throughout training, which is consistent with the corrected initialization.
 
 Table~\ref{tab:eval_results} presents the evaluation. All three runs are fully admissible: zero collisions, zero clamps, perturbation correctly applied, and valid string-stability measurement.
 
@@ -32,20 +32,20 @@ SAC   & \textbf{0.873} & \textbf{0.482} & 4.325 & 0.425 & \textbf{2.957} & \text
 \begin{figure}[!htbp]
     \centering
     \includegraphics[width=0.85\textwidth]{images/results/overview_comparison.png}
-    \caption{Bar comparison of evaluation metrics. SAC achieves the lowest late-regime speed variance and the largest minimum gap.}
+    \caption{Comparison of the admissible h50 evaluation metrics. SAC gives the lowest late-regime speed variance, while the rule-based baseline remains competitive on speed and control effort.}
     \label{fig:eval_overview}
 \end{figure}
 
 \subsection{Interpretation}
 
-\textbf{The mesoscopic baseline is already strong.} With an amplification ratio of~0.873, the rule-based adaptation alone produces string-stable flow, validating the control architecture independently of learning.
+\textbf{The mesoscopic baseline is already strong.} The corrected no-RL run is already string stable, with an amplification ratio of~0.873. This matters because it shows the hand-designed architecture is doing real work on its own, rather than serving only as a scaffold for RL.
 
-\textbf{The RL residual has limited marginal impact.} SAC matches the baseline on the primary metric while reducing late-regime speed variance by 7\,\% and improving the minimum gap. PPO performs slightly worse than the baseline, consistent with lower sample efficiency in a low-authority regime. With only ${\pm}10\,\%$ headway modulation, neither algorithm deviates far from the rule-based policy.
+\textbf{RL adds only a modest gain in this regime.} SAC essentially matches the baseline on the primary metric while reducing late-regime speed variance by about 7\,\% and slightly increasing the minimum gap. PPO is a little worse than the baseline. With only ${\pm}10\,\%$ headway modulation, neither algorithm can move far from the rule-based policy.
 
-\textbf{SAC outperforms PPO.} Across all secondary metrics (speed variance, minimum gap), SAC is consistently better. Its entropy-regularised objective appears better suited to continuous-action tasks with limited exploration budgets.
+\textbf{SAC is the more convincing residual learner.} Of the two RL methods, SAC is the only one that consistently improves the secondary metrics. That makes it the better candidate for future runs, even if the current gain is still small.
 
-\textbf{The protocol is now valid.} Unlike all prior campaigns, this run satisfies the admissibility gate, making the comparison scientifically meaningful for the first time.
+\textbf{The main result is methodological as much as numerical.} The comparison is now admissible. That matters because earlier runs were contaminated by pre-perturbation clamps, so their string-stability scores could not be trusted.
 
 \subsection{Future work}
 
-The most immediate next step is \textbf{multi-seed evaluation} (10--20 seeds) to distinguish genuine method differences from seed artefacts. Beyond that, \textbf{increasing the RL authority} ($|\Delta\alpha|$ from 0.1 to 0.2--0.3) would give the policy more room to differentiate from the baseline. The campaign should also be extended to \textbf{25\,\% and 75\,\% penetration rates}, and training should move to the \textbf{GPU-vectorized backend} to enable longer runs with larger batch sizes.
+The next priority is \textbf{multi-seed evaluation} (10--20 seeds) to separate genuine method differences from seed artefacts. After that, \textbf{increasing the RL authority} ($|\Delta\alpha|$ from 0.1 to 0.2--0.3) would give the policy more room to differentiate from the baseline. The campaign should also be extended to \textbf{25\,\% and 75\,\% penetration rates}, and training should move to the \textbf{GPU-vectorized backend} to enable longer runs with larger batch sizes.

@@ -11,14 +11,8 @@ The Intelligent Driver Model (IDM) is a deterministic microscopic car-following 
 	\underbrace{\left( \frac{s^*(v_i,\Delta v_i)}{s_i} \right)^2}_{\text{interaction (braking) term}}
 	\right].
 \end{equation}
-\newline $v_i$: velocity of vehicle $i$, 
-\newline $v_d$: the desired free-flow velocity
-\newline$a_{max}$: the maximum acceleration
-\newline $\delta$: an acceleration exponent controlling how smoothly the vehicle approaches the desired velocity in free traffic. 
+Here $v_i$ is the ego velocity, $v_d$ the desired free-flow velocity, $a_{max}$ the maximum acceleration, $b$ the desired deceleration, and $\delta$ the acceleration exponent \cite{Treiber.2000}. The free-road term drives the vehicle toward $v_d$, while the interaction term enforces deceleration when the actual spacing $s_i$ falls below the desired spacing $s^*$.
 
-When $v_i \ll v_0$, the free-road acceleration $\simeq 1$, so the vehicle accelerates approximately with magnitude $a_{max}$. As $v_i$ approaches $v_0$, the term smoothly converges to zero, ensuring bounded acceleration and asymptotic convergence to the desired free-flow equilibrium \cite{Treiber.2000}.
-
-The interaction term dominates when the actual spacing  $s_i$ is less than the desired spacing $s^*$, thereby inducing decceleration. The quadratic structure ensures strong braking for small gaps and guarantees collision-free behavior under realistic parameter choices \cite{Treiber.2000}.
 
 The spacing is defined as
 \begin{equation}
@@ -38,7 +32,8 @@ The desired dynamic spacing is given by
 	+
 	\underbrace{\frac{v_i \Delta v_i}{2 \sqrt{a_{max} b}}}_{\text{anticipation term}}.
 \end{equation}
-The constant term $s_0$ represents the minimum spacing in standing traffic. The linear term $v_i T_H$ reflects the constant time-headway policy characteristic of human driving behavior. The third term, proportional to $v_i \Delta v_i$, introduces anticipative braking by accounting for relative velocity differences and the maximum acceleration and desired deceleration denoted respectively by $a_{max}$ and $b$ \cite{Treiber.2000}.
+The terms represent the jam distance $s_0$, the time-headway policy $v_i T_H$, and an anticipative braking correction \cite{Treiber.2000}.
+
 
 \subsubsection{Stochastic Intelligent Driver Model (SIDM)} \label{SIDM}
 

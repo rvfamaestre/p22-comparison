@@ -1,3 +1,3 @@
-method,episodes_completed,best_episode,best_speed_variance,final_speed_variance,last10_mean_speed_variance,last10_std_speed_variance,runtime_seconds
-ppo,25,9,1.471418857574463,1.8774631023406982,1.958465540409088,0.13771009559129033,
-sac,25,3,1.5303806066513062,1.7618041038513184,1.8534811854362487,0.19549810394123332,
+method,primary_metric,episodes_completed,best_episode,best_value,final_value,last10_mean,last10_std,runtime_seconds
+ppo,training_objective,15,4,0.8763358272845208,0.8821000169183935,0.8848439472845688,0.0035273945920984195,
+sac,training_objective,21,6,0.8708513254225195,0.8776229549417566,0.8818219305378368,0.006094684138504435,

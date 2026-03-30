@@ -1,5 +1,6 @@
 \subsection{Our contributions}
-	\begin{itemize}
-    \item Modeling mixed traffic with human-driven(HDVs) and connected autonomous vehicles (CAVs), improving capacity and stability, in addition to extending traffic analysis from open platoons to closed ring-road systems.
-    \item Proposing a mesoscopic RL framework combining micro- and macro-level traffic states with incorporated resistance forces on our input to create the nearest real life simulation. 
+\begin{itemize}
+    \item A mixed-traffic ring-road model combining SIDM-based HDVs, ACC/CTH-based CAVs, and mesoscopic traffic indicators derived from upstream flow.
+    \item A layered control architecture in which a rule-based mesoscopic headway adaptation is refined by a residual RL policy, rather than replaced by a fully learned controller.
+    \item A corrected and admissible evaluation protocol at 50\,\% human penetration, leading to the first clean comparison in this project between the no-RL baseline, PPO, and SAC.
 \end{itemize}

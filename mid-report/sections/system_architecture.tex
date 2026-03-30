@@ -1,8 +1,6 @@
 \section{System Architecture}
 
-The proposed system is organized as a layered control architecture for mixed traffic on a ring road. Its main objective is to combine microscopic control with mesoscopic traffic awareness. The complete framework can be divided into four main parts: the simulation layer, the mesoscopic perception layer, the mesoscopic adaptation layer, and the control layer. Each part has a specific role, and together they allow the CAVs to react not only to their immediate leader but also to the collective traffic conditions upstream.
-
-\subsection{Overall structure}
+The proposed controller is organized as a layered architecture that combines a conventional vehicle-level controller with mesoscopic traffic awareness. Figure~\ref{fig:system_architecture} summarizes the four layers: simulation, perception, adaptation, and control.
 
 \begin{figure}[!htbp]
     \centering
@@ -11,13 +9,13 @@ The proposed system is organized as a layered control architecture for mixed tra
     \label{fig:system_architecture}
 \end{figure}
 
-The simulation layer represents the mixed-traffic environment, where human-driven vehicles (HDVs) and connected and automated vehicles (CAVs) evolve on the same road. At each time step, the CAV receives observations from the traffic environment, processes them through two perception channels, computes an adaptive parameter, and finally applies the resulting control law. In this way, the architecture separates \emph{observation}, \emph{adaptation}, and \emph{actuation}, which makes the framework easier to interpret from a control perspective.
+\subsection{Overall structure}
+
+At each simulation step, the environment updates all vehicles, the perception layer summarizes the local and upstream traffic state, the adaptation layer converts those observations into a headway adjustment, and the control layer applies the resulting acceleration command. Separating these roles makes the framework easier to debug and makes it explicit what the RL block is allowed to change.
 
 \subsection{Simulation layer}
 
-The simulation layer contains the traffic environment and generates the variables needed by the control framework. The road is modeled as a ring road, which avoids boundary effects and makes the appearance of traffic oscillations easier to study. HDVs and CAVs coexist in the same environment, but only the CAVs use the adaptive control architecture.
-
-This layer provides the real-time traffic variables used by the upper layers, such as positions, velocities, spacing, and acceleration. It is therefore the source of both local and collective traffic information.
+The simulation layer models a single-lane ring road where HDVs and CAVs coexist. The ring-road setting removes open-boundary entry and exit effects, which makes the appearance of stop-and-go waves easier to observe and compare across methods. This layer provides the positions, velocities, spacing, and leader-acceleration signals used by the upper layers.
 
 \subsection{Mesoscopic perception layer}
 
@@ -106,5 +104,4 @@ a_i = k_s\left(s_i - d_0 - T_i v_i\right)
       + k_{v0}(v_{\mathrm{des}} - v_i).
 \]
 
-This equation shows clearly how the architecture is organized. The lower-level controller remains a classical feedback law based on spacing, relative speed, leader acceleration, and desired speed regulation. The upper layers do not replace this controller; they only adapt the time-headway parameter $T_i$ used inside it.
-
+The lower-level controller therefore remains a standard feedback law; the upper layers only adapt the time-headway parameter used inside it. This separation preserves a clear physical interpretation of the final command.

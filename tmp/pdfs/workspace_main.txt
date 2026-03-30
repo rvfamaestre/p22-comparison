@@ -1,0 +1,552 @@
+Adaptive Hybrid Control Error for Vehicle
+  Platoons via Reinforcement Learning
+                Mid-Report
+
+
+                   Authors:
+                Mustafa Kamal
+              Rafael Maestre López
+                Charelle Khoury
+
+
+
+                   Course:
+                Project S8 - P22
+Adaptive Hybrid Control Error for Vehicle Platoons via Reinforcement Learning          30/03/2026
+
+
+Contents
+1 Introduction                                                                                    1
+  1.1 A Short Description . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .     1
+  1.2 Motivation . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .    1
+  1.3 Our contributions . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .     1
+
+2 Traffic Environment                                                                             1
+  2.1 Driver Models . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .     1
+       2.1.1 Intelligent Driver Model (IDM) . . . . . . . . . . . . . . . . . . . . . . .         1
+       2.1.2 Stochastic Intelligent Driver Model (SIDM) . . . . . . . . . . . . . . . .           2
+       2.1.3 Connected Autonomous Vehicle (CAV) Model . . . . . . . . . . . . . . .               2
+  2.2 Mixed Traffic Model . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .       3
+  2.3 Macroscopic Information . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .       4
+
+3 Reinforcement Learning                                                                          4
+  3.1 Fundamentals . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .      4
+  3.2 PPO . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .     5
+  3.3 SAC . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .     5
+
+4 System Architecture                                                                             6
+  4.1 Mesoscopic perception layer . . . . . . . . . . . . . . . . . . . . . . . . . . . . .       6
+  4.2 Mesoscopic adaptation layer . . . . . . . . . . . . . . . . . . . . . . . . . . . . .       7
+  4.3 Control layer . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .     7
+
+5 Experimental Results and Perspectives                                                           8
+  5.1 Protocol and admissibility fix . . . . . . . . . . . . . . . . . . . . . . . . . . . .      8
+  5.2 Results . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .   8
+  5.3 Interpretation . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .    8
+  5.4 Future work . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .     9
+
+
+
+
+                                                 i
+Adaptive Hybrid Control Error for Vehicle Platoons via Reinforcement Learning                30/03/2026
+
+
+1       Introduction
+1.1     A Short Description
+The modernization of intelligent transportation systems (ITS) has necessitated a paradigm
+shift from individual vehicle autonomy to cooperative automation. Vehicular platooning offers
+a promising solution to traffic congestion, fuel inefficiency, and road safety.
+    Thus, our work motivates an ”Adaptive Hybrid Control strategy” using RL to adjust the
+weight between micro and macro. This transition from the standard Adaptive Cruise Con-
+trol (ACC) to Cooperative Adaptive Cruise Control (CACC) introduces challenges in string
+stability, the ability to attenuate disturbances, especially under communication delays.
+
+1.2     Motivation
+A fundamental trade-off exists in platoon control architectures:
+
+     Local Control: Relies on local sensors (radar/LiDAR). It is robust to network failures
+      and ensures collision avoidance but is prone to string instability in long platoons.
+
+     Global Control: Relies on V2V data from the leader. It provides excellent string
+      stability but is highly sensitive to communication delays and packet loss.
+
+1.3     Our contributions
+     Modeling mixed traffic with human-driven(HDVs) and connected autonomous vehicles
+      (CAVs), improving capacity and stability, in addition to extending traffic analysis from
+      open platoons to closed ring-road systems.
+
+     Proposing a mesoscopic RL framework combining micro- and macro-level traffic states
+      with incorporated resistance forces on our input to create the nearest real life simulation.
+
+
+2       Traffic Environment
+2.1     Driver Models
+2.1.1    Intelligent Driver Model (IDM)
+The Intelligent Driver Model (IDM) is a deterministic microscopic car-following model describ-
+ing the longitudinal dynamics of vehicle i as a function of its own velocity, the spacing to its
+predecessor, and their relative velocity [1]. The acceleration of vehicle i is defined as
+                                                                        
+                                        δ                       ∗             2
+                                       vi                         s (vi , ∆vi )        
+                      v̇i = amax  1 −                     −                            .          (1)
+                                                                                       
+                                        v                              si
+                                   | {z d }
+                                                                                       
+                                                                 |      {z        }
+                                  free-road acceleration       interaction (braking) term
+
+Here vi is the ego velocity, vd the desired free-flow velocity, amax the maximum acceleration,
+b the desired deceleration, and δ the acceleration exponent [1]. The free-road term drives the
+vehicle toward vd , while the interaction term enforces deceleration when the actual spacing si
+falls below the desired spacing s∗ .
+    The spacing is defined as
+                                        si = xi−1 − xi − L,                                 (2)
+
+
+                                                     1
+Adaptive Hybrid Control Error for Vehicle Platoons via Reinforcement Learning                         30/03/2026
+
+
+   where xi and xi−1 denote the longitudinal positions of vehicle i and its leader, respectively,
+and L is the vehicle length. The relative velocity is defined as ∆vi = vi − vi−1 .
+   The desired dynamic spacing is given by
+                                                                                     v ∆v
+                    s∗ (vi , ∆vi ) =       s0         +         vi TH         +      √i i     .              (3)
+                                                                                    2 a b
+                                                                                    | {zmax }
+                                          |{z}                  | {z }
+                                       jam distance       time-headway term
+                                                                                  anticipation term
+
+The terms represent the jam distance s0 , the time-headway policy vi TH , and an anticipative
+braking correction [1].
+
+2.1.2   Stochastic Intelligent Driver Model (SIDM)
+To account for perception errors, behavioral variability, and unmodeled disturbances, the IDM
+can be extended by introducing a stochastic acceleration component [2]. The stochastic IDM
+(SIDM) is formulated as
+
+                            v̇i = f (si , vi , vi−1 ) +                  ξi (t)             ,                (4)
+                                  |       {z       }                     |{z}
+                                  deterministic IDM         stochastic acceleration noise
+
+   where f (·) denotes the deterministic IDM acceleration function and ξi (t) is a stochastic
+process representing white acceleration noise.
+   The stochastic term satisfies
+                                          ⟨ξi (t)⟩ = 0,                                   (5)
+                                       ⟨ξi (t)ξj (t′ )⟩ = Q δij δ(t − t′ ),                                  (6)
+    where Q denotes the noise intensity, δij is the Kronecker delta ensuring independence be-
+tween different vehicles, and δ(t−t′ ) is the Dirac delta distribution representing temporal white
+noise [2].
+    Close to the string stability threshold, noise can generate spatiotemporal correlations and
+traffic oscillations resembling stop-and-go waves. Consequently, the SIDM provides a unified
+framework for analyzing deterministic instabilities and noise-induced traffic dynamics [2].
+
+2.1.3   Connected Autonomous Vehicle (CAV) Model
+For connected autonomous vehicles, we adopt the point-mass longitudinal dynamics described
+in [3]. The motion of vehicle i is governed by
+
+                                            ẋi = vi ,          v̇i = ui ,                                   (7)
+In a car-following configuration, the spacing and relative velocity are defined as
+
+                             si = xi−1 − xi − L,                  ∆vi = vi − vi−1 .                          (8)
+
+   CAVs implement an Adaptive Cruise Control (ACC) strategy based on a Constant Time
+Headway (CTH) policy. The desired spacing is given by
+
+                                               sref
+                                                i = s0 + TC vi ,                                             (9)
+
+   where s0 denotes the standstill spacing and TC > 0 is the selected time headway.
+   Defining the spacing error
+                                        ep,i = si − sref
+                                                     i ,                                                    (10)
+
+
+
+                                                            2
+Adaptive Hybrid Control Error for Vehicle Platoons via Reinforcement Learning              30/03/2026
+
+
+   its dynamics follow from
+                                ṡi = −∆vi ,      ṡref
+                                                    i = TC v̇i = TC ui ,                           (11)
+   which yields
+                                         ėp,i = −∆vi − TC ui .                                    (12)
+   A linear ACC controller that regulates both spacing and velocity errors can therefore be
+written as
+                                ui = ks (si − sref
+                                               i ) − kv ∆vi ,                          (13)
+    where ks > 0 and kv > 0 denote the spacing and velocity feedback gains, respectively. This
+controller constitutes a linear realization of the CTH policy consistent with [3]. The CTH
+strategy guarantees weak string stability (∥H(jω)∥∞ ≤ 1) using only local measurements [4].
+
+2.2    Mixed Traffic Model
+We consider a mixed traffic system composed of N vehicles circulating on a single-lane ring
+road of length Lring . The vehicle indices satisfy periodic boundary conditions such that vehicle
+1 follows vehicle N .
+    Let xi (t) and vi (t) denote the position and velocity of vehicle i ∈ {1, . . . , N }. The ring-road
+constraint is given by
+                             xi−1 (t) > xi (t),   x0 (t) := xN (t) + Lring .                        (14)
+   The spacing is defined as
+                                         si = xi−1 − xi − L,                                       (15)
+where periodicity applies for i = 1.
+  Let H denote the set of HDVs and C the set of CAVs, with penetration rate
+                                                       |C|
+                                               P =         .                                       (16)
+                                                       N
+
+    Human-driven vehicles are modeled according to the stochastic Intelligent Driver Model
+introduced in Subsection 2.1.2.
+    HDVs do not utilize acceleration information of the preceding vehicle, reflecting the ab-
+sence of communication capabilities. Furthermore, HDVs are characterized by a larger effective
+reaction time TH , representing the delay associated with human perception and actuation. Con-
+sequently, their response to traffic perturbations is slower and more susceptible to amplification
+of stochastic fluctuations.
+
+   Connected autonomous vehicles are modeled according to the ACC framework introduced
+previously in 2.1.3. In contrast to HDVs, CAVs are assumed to exhibit higher sensitivity
+coefficients and a shorter desired time headway TC , reflecting their faster sensing [5]. The
+condition TC < TH therefore captures the higher responsiveness of CAVs compared to HDVs.
+   When a CAV follows an HDV, communication-based acceleration information is unavailable.
+In this degraded configuration, the feedforward gain is set to ka = 0, and the effective time
+headway is increased to TCdeg > TC , representing reduced cooperative capability. This modeling
+choice captures the performance degradation of CAVs in mixed traffic reported in [5] and [6].
+
+   The closed-loop mixed system is therefore
+                             
+                             fIDM (si , vi , vi−1 ) + ξi (t),       i ∈ H,
+                       v̇i =                                                                       (17)
+                             k (s − sref ) − k ∆v + k a , i ∈ C.
+                               s i       i          v   i      a i−1
+
+
+                                                   3
+Adaptive Hybrid Control Error for Vehicle Platoons via Reinforcement Learning           30/03/2026
+
+
+2.3    Macroscopic Information
+Up to this point, only microscopic vehicle interactions have been considered. To improve
+the performance of the proposed framework, macroscopic traffic information are introduced
+according to [3]. In particular, we define the mean velocity on the ring as
+                                                          N
+                                                1 X
+                                        v̄(t) =       vi (t),                                   (18)
+                                                N i=1
+
+and the velocity variance
+                                                  N
+                                              1 X
+                                  σv2 (t) =         (vi (t) − v̄(t))2 .                         (19)
+                                              N i=1
+   The mean velocity represents the macroscopic traffic state, while the variance quantifies
+the level of speed dispersion and therefore the intensity of oscillations. As discussed in [3], the
+variance provides a compact indicator of transient traffic behavior and string instability.
+
+
+3     Reinforcement Learning
+In this project, reinforcement learning (RL) is used to improve the behavior of connected and
+automated vehicles (CAVs) in mixed traffic. The main idea is not to replace the baseline
+controller, but to add an adaptive layer on top of it. This learned layer adjusts the time
+headway policy according to the current traffic situation. In this way, the controller keeps its
+physical interpretation while gaining the ability to react to complex traffic patterns that are
+difficult to model explicitly.
+
+3.1    Fundamentals
+The RL problem is formulated as a Markov Decision Process (MDP),
+
+                                         M = (S, A, P, r),
+
+where S is the state space, A is the action space, P represents the traffic dynamics, and r is
+the reward.
+    At each time step, the agent observes the traffic state, selects an action, applies it to the
+controller, and receives a reward. In the current implementation, the state of each CAV i is
+defined as
+                                        2
+                          xi = (µv,i , σv,i    macro
+                                            , δv,i   , vi , si , ∆vi , aℓ(i) , αiprev ),
+                  2                                                                 macro
+where µv,i and σv,i  are the upstream mean velocity and velocity variance, δv,i           = vi − µv,i
+is the speed mismatch with the local upstream flow, vi is the ego speed, si is the spacing to
+the leader, ∆vi is the relative speed, aℓ(i) is the leader acceleration, and αiprev is the previously
+applied headway scaling factor.
+    This state combines microscopic information, such as spacing and relative velocity, with
+mesoscopic information, such as the average speed and speed variance of upstream traffic. This
+is important because local measurements alone may not be enough to detect the development
+of traffic waves.
+    The action is a residual correction of the headway scaling:
+
+                                A = {∆αi ∈ [−∆αmax , +∆αmax ]}.
+
+
+
+                                                      4
+Adaptive Hybrid Control Error for Vehicle Platoons via Reinforcement Learning        30/03/2026
+
+
+The final headway scaling factor is then given by
+
+                                αi (t) = clip αirule (t) + ∆αi (t) ,
+                                                                  
+
+
+where αirule (t) is the baseline headway scaling provided by the rule-based mesoscopic module.
+Therefore, RL only refines the baseline decision instead of replacing it. The learned policy can
+be written as
+                                 π : S → A,     ∆αi (t) = π(xi (t)).
+   The reward function encourages safe, smooth, and efficient traffic:
+
+                              rt = rsf + rsp + ref + rcf + rss + rσ2 .
+
+   The different reward terms have a clear physical meaning:
+
+    rsf : safety term, penalizing unsafe spacing and too small time headway;
+
+    rsp : spacing regulation term, encouraging tracking of the desired spacing;
+
+    ref : efficiency term, encouraging the vehicle speed to remain close to the upstream mean
+     speed;
+
+    rcf : comfort term, penalizing high jerk;
+
+    rss : string stability term, penalizing amplification of spacing errors along the platoon;
+
+    rσ2 : traffic smoothness term, penalizing large velocity variance in the traffic stream.
+
+3.2     PPO
+Proximal Policy Optimization (PPO) is a policy-gradient RL algorithm that updates the policy
+in a stable and conservative way. Its main advantage is that it is simple to implement and
+usually robust during training. PPO avoids large policy updates by using a clipped objective:
+                                h                                            i
+                    PPO
+                  L     (θ) = Et min rt (θ)Ât , clip(rt (θ), 1 − ϵ, 1 + ϵ)Ât ,
+
+where
+                                                   πθ (at |st )
+                                       rt (θ) =                   ,
+                                                  πθold (at |st )
+and Ât is the estimated advantage. PPO is attractive for its simplicity and stable training in
+continuous-action settings.
+
+3.3     SAC
+Soft Actor-Critic (SAC) is another RL algorithm for continuous control. Unlike PPO, SAC is
+an off-policy method and includes an entropy term in its objective:
+                                   X
+                            J(π) =     E [r(st , at ) + βH(π(·|st ))] ,
+                                      t
+
+where H(π(·|st )) is the policy entropy and β controls the exploration level.
+   SAC is well suited to continuous-action problems and stochastic environments. Its replay
+buffer allows reuse of past experience, which can improve sample efficiency compared with
+on-policy methods such as PPO.
+
+                                                   5
+Adaptive Hybrid Control Error for Vehicle Platoons via Reinforcement Learning        30/03/2026
+
+
+4      System Architecture
+The system is organized as a layered control architecture combining microscopic control with
+mesoscopic traffic awareness. Figure 1 shows the four layers: simulation, perception, adapta-
+tion, and control.
+
+
+
+
+                   Figure 1: Overview of the proposed system architecture.
+
+    The simulation layer models a ring road where HDVs and CAVs coexist, providing positions,
+velocities, spacing, and acceleration data to the upper layers.
+
+4.1    Mesoscopic perception layer
+The perception layer extracts the information used by the controller. It contains two comple-
+mentary observers.
+
+Microscopic observer. The microscopic observer describes the local car-following situation
+of vehicle i. It uses the spacing, relative velocity, and ego speed:
+                                                               ⊤
+                                     xmicro
+                                              
+                                      i     =   s i ∆v i a i−1    ,
+
+with
+                              si = pi−1 − pi ,       ∆vi = vi−1 − vi .
+These variables describe the immediate interaction with the preceding vehicle and are the
+standard quantities used by longitudinal controllers.
+
+Macroscopic observer. The second observer captures collective traffic behavior upstream of
+the CAV. Instead of looking only at the leader, it summarizes the traffic state over a perception
+horizon. The two main quantities are the upstream mean velocity and the upstream velocity
+variance:                                             ⊤
+                                     xmacro
+                                               
+                                      i     = µv σv2 ,
+with
+                                  M                          M
+                             1 X                         1 X
+                        µv =       vi+j ,        σv2 =         (vi+j − µv )2 .
+                             M j=1                       M j=1
+
+                                                 6
+Adaptive Hybrid Control Error for Vehicle Platoons via Reinforcement Learning          30/03/2026
+
+
+The mean velocity gives an estimate of the average upstream traffic speed, while the variance
+indicates how irregular or unstable the traffic stream is.
+
+4.2    Mesoscopic adaptation layer
+The adaptation layer transforms the observed traffic information into a headway modification
+for the CAV controller. It contains two parts: a baseline adaptive headway mechanism and a
+residual reinforcement learning policy.
+
+Baseline adaptive headway. The baseline mechanism computes a rule-based headway scal-
+ing factor from the macroscopic traffic information. The update can be written as
+
+                                        αirule = sat(1 + ρi ),
+
+with the internal state
+                                          ρ+
+                                           i = λρi + γψ,
+
+and the perception signal
+                                                              2σv
+                               ψ = β sgn(vi − µv ),         β=    .
+                                                             vmax
+This mechanism has a simple interpretation. When upstream traffic becomes more variable,
+the controller increases the effective headway in order to react more cautiously. When traffic is
+smoother, the headway can be reduced. The filtering through ρi also avoids abrupt parameter
+changes.
+
+Residual RL policy. On top of the baseline adaptation, a residual policy computes a cor-
+rection term:
+                                                        ⊤
+            χi = µv σv2 (vi − µv ) vi si ∆vi ai−1 αiprev ,
+                
+                                                               ∆αi = πθ (χi ).
+
+The role of this block is to refine the rule-based decision without changing the overall structure
+of the controller. In other words, the adaptive law remains physically interpretable, while the
+learning block adds flexibility when the traffic situation becomes more complex. The resulting
+policy input therefore combines mesoscopic information, local car-following variables, and the
+previously applied headway state in a single 8-dimensional vector.
+
+4.3    Control layer
+The control layer converts the adapted headway into a longitudinal acceleration command for
+the CAV. The final scaling factor is
+
+                                    αi = clip αirule + ∆αi ,
+                                                          
+
+
+and the corresponding time headway becomes
+
+                                             Ti = αi T0 .
+
+This adapted headway is then used inside the microscopic CACC/CTH controller:
+
+                   ai = ks (si − d0 − Ti vi ) + kv ∆vi + ka ai−1 + kv0 (vdes − vi ).
+
+
+
+
+                                                  7
+Adaptive Hybrid Control Error for Vehicle Platoons via Reinforcement Learning         30/03/2026
+
+
+5     Experimental Results and Perspectives
+5.1     Protocol and admissibility fix
+The experiment targets the 50 % human-driver regime on a ring road with N =22 vehicles
+(L=300 m). Three methods are compared: the rule-based mesoscopic adaptation alone (No RL),
+and two residual RL policies (PPO, SAC) trained on top of it. Each episode starts from ran-
+dom initial conditions; a velocity perturbation (∆v = −3 m/s) is applied at t=12 s after a
+10 s warm-up. The primary metric is the string-stability amplification ratio: the maximum
+downstream-to-source speed-error ratio, where a value below 1 indicates disturbance attenua-
+tion.
+    A critical protocol bug was found and fixed before this campaign. The random initialization
+computed minimum inter-vehicle spacing without accounting for vehicle length (ℓ=5 m), pro-
+ducing net bumper-to-bumper gaps as low as 0 m. Combined with a warm-up that also capped
+braking, every prior run suffered collision-clamp events before the perturbation, invalidating
+string-stability. The fix added vehicle length to the spacing bound, clamped initial closing
+rates to be kinematically safe, and allowed unrestricted braking during warm-up. After the fix,
+50/50 random seeds produced zero pre-perturbation clamps.
+
+5.2     Results
+Both RL methods early-stopped quickly (PPO at episode 15, SAC at 21), with best checkpoints
+at episodes 4 and 6. This reflects the limited residual authority (|∆α| ≤ 0.1): the policy reaches
+its useful range almost immediately and subsequent updates add noise. Zero collision clamps
+were observed throughout training, confirming the initialization fix.
+    Table 1 presents the evaluation. All three runs are fully admissible: zero collisions, zero
+clamps, perturbation correctly applied, and valid string-stability measurement.
+
+    Table 1: Evaluation at 50 % human ratio. All runs admissible. Bold = best per column.
+
+           Method   Amp. ratio    Var100     Mean spd100   RMS acc    Min gap   Clamps
+                       (–)       (m2 /s2 )     (m/s)        (m/s2 )     (m)
+           No RL      0.873       0.517        4.408        0.399      2.875      0
+           PPO        0.881       0.687        4.183         0.403     2.929      0
+           SAC       0.873        0.482        4.325         0.425     2.957      0
+
+
+
+5.3     Interpretation
+The mesoscopic baseline is already strong. With an amplification ratio of 0.873, the
+rule-based adaptation alone produces string-stable flow, validating the control architecture
+independently of learning.
+    The RL residual has limited marginal impact. SAC matches the baseline on the
+primary metric while reducing late-regime speed variance by 7 % and improving the minimum
+gap. PPO performs slightly worse than the baseline, consistent with lower sample efficiency in
+a low-authority regime. With only ±10 % headway modulation, neither algorithm deviates far
+from the rule-based policy.
+    SAC outperforms PPO. Across all secondary metrics (speed variance, minimum gap),
+SAC is consistently better. Its entropy-regularised objective appears better suited to continuous-
+action tasks with limited exploration budgets.
+    The protocol is now valid. Unlike all prior campaigns, this run satisfies the admissibility
+gate, making the comparison scientifically meaningful for the first time.
+
+                                                 8
+Adaptive Hybrid Control Error for Vehicle Platoons via Reinforcement Learning       30/03/2026
+
+
+
+
+Figure 2: Bar comparison of evaluation metrics. SAC achieves the lowest late-regime speed
+variance and the largest minimum gap.
+
+
+5.4    Future work
+The most immediate next step is multi-seed evaluation (10–20 seeds) to distinguish genuine
+method differences from seed artefacts. Beyond that, increasing the RL authority (|∆α|
+from 0.1 to 0.2–0.3) would give the policy more room to differentiate from the baseline. The
+campaign should also be extended to 25 % and 75 % penetration rates, and training should
+move to the GPU-vectorized backend to enable longer runs with larger batch sizes.
+
+
+References
+[1] M. Treiber, A. Hennecke, and D. Helbing, “Congested traffic states in empirical observations
+    and microscopic simulations,” 2000.
+
+[2] M. Treiber and A. Kesting, “The intelligent driver model with stochasticity – new insights
+    into traffic flow oscillations,” Transportation Research Part B: Methodological, vol. 117,
+    pp. 613–623, 2018.
+
+[3] M. Mirabilio, A. Iovine, E. de Santis, M. D. Di Benedetto, and G. Pola, “A mesoscopic
+    human-inspired adaptive cruise control for eco-driving,” IEEE Transactions on Intelligent
+    Transportation Systems, vol. 24, no. 9, pp. 9571–9583, 2023.
+
+[4] D. Swaroop and K. R. Rajagopal, “A review of constant time headway policy for automatic
+    vehicle following,” in ITSC 2001. 2001 IEEE Intelligent Transportation Systems. Proceed-
+    ings (Cat. No.01TH8585), pp. 65–69, IEEE, 2001.
+
+[5] Y. Gong and W.-X. Zhu, “Modeling and robust h ∞ control synthesis of the cav-hdv
+    heterogeneous traffic system with different car-following modes,” IEEE Transactions on
+    Intelligent Transportation Systems, vol. 25, no. 10, pp. 12980–12998, 2024.
+
+[6] B.-l. Cen, Y. Xue, K. Zhang, L. Jia, and H.-d. He, “Study on traffic flows with connected
+    vehicles and human-driven vehicles,” Applied Mathematics and Computation, vol. 490,
+    p. 129182, 2025.
+
+
+
+                                               9
+
