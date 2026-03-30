@@ -148,6 +148,9 @@ def compute_eval_metrics(micro_csv_path: Path, metadata_path: Path, config_path:
         "min_gap": float(df["gap_s"].min()) if "gap_s" in df.columns else float("nan"),
         "collision_count": float(metadata.get("collision_count", 0.0)),
         "collision_clamp_count": float(metadata.get("collision_clamp_count", 0.0)),
+        "string_stability_value": float("nan"),
+        "string_stability_metric_valid": False,
+        "string_stability_is_stable": None,
     }
 
     # String stability (if config available with perturbation info)
@@ -157,14 +160,27 @@ def compute_eval_metrics(micro_csv_path: Path, metadata_path: Path, config_path:
         with open(config_path, "r", encoding="utf-8") as f:
             cfg = yaml.safe_load(f) or {}
 
-    perturbation_enabled = cfg.get("perturbation_enabled", False)
+    perturbation_enabled = cfg.get(
+        "perturbation_enabled",
+        metadata.get("perturbation_enabled", False),
+    )
     if perturbation_enabled and "gap_s" in df.columns:
         # Build minimal traces DataFrame with expected column names
         traces = df.rename(columns={"t": "time", "id": "vehicle_id"})
         ss_result = compute_string_stability_from_traces(
             traces,
-            perturb_vehicle_id=int(cfg.get("perturbation_vehicle", 0)),
-            perturbation_time=float(cfg.get("perturbation_time", 3.0)),
+            perturb_vehicle_id=int(
+                cfg.get(
+                    "perturbation_vehicle",
+                    metadata.get("perturbation_vehicle", 0),
+                )
+            ),
+            perturbation_time=float(
+                cfg.get(
+                    "perturbation_time",
+                    metadata.get("perturbation_time", 3.0),
+                )
+            ),
             valid_base=(int(metadata.get("collision_clamp_count", 0)) == 0),
             applicable=True,
         )
@@ -177,7 +193,11 @@ def compute_eval_metrics(micro_csv_path: Path, metadata_path: Path, config_path:
         min_gap_threshold=SAFE_HEADWAY_M,
         collision_count_key="collision_count",
         collision_clamp_count_key="collision_clamp_count",
-        string_stability_key="string_stability_is_stable",
+        string_stability_key=(
+            "string_stability_is_stable"
+            if bool(metrics.get("string_stability_metric_valid", False))
+            else None
+        ),
     )
 
     return metrics
@@ -559,7 +579,12 @@ def format_float(value: float | None) -> str:
 
 
 def best_method_for_metric(eval_df: pd.DataFrame, metric: str, human_ratio: float) -> str:
+    if metric not in eval_df.columns:
+        return "n/a"
     subset = eval_df[eval_df["human_ratio"] == human_ratio].copy()
+    if subset.empty:
+        return "n/a"
+    subset = subset[subset[metric].notna()]
     if subset.empty:
         return "n/a"
     ascending = LOWER_IS_BETTER[metric]
@@ -642,6 +667,8 @@ def write_markdown_report(
         lines.append(f"### {tag}")
         lines.append("")
         for metric in METRIC_COLUMNS:
+            if metric not in eval_df.columns:
+                continue
             lines.append(f"- {METRIC_LABELS[metric]}: `{best_method_for_metric(eval_df, metric, float(human_ratio))}`")
         lines.append("")
 
@@ -669,6 +696,10 @@ def main() -> None:
     write_markdown_report(base_output, eval_df, training_df, report_md, args.methods)
 
     for metric in METRIC_COLUMNS:
+        if metric not in eval_df.columns:
+            continue
+        if eval_df[metric].notna().sum() == 0:
+            continue
         plot_eval_metric(eval_df, metric, comparison_dir / f"{metric}_comparison.png")
 
     plot_overview(eval_df, comparison_dir / "overview_comparison.png")

@@ -3,6 +3,7 @@
 
 import argparse
 import os
+import yaml
 
 from src.utils.config_manager import ConfigManager
 from src.simulation.scenario_manager import ScenarioManager
@@ -17,6 +18,18 @@ def main():
         default="config/config.yaml",
         help="Path to config YAML file."
     )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=None,
+        help="Optional seed override."
+    )
+    parser.add_argument(
+        "--output-path",
+        type=str,
+        default=None,
+        help="Optional output path override."
+    )
     args = parser.parse_args()
 
     # ---------------------------------------------------------
@@ -30,6 +43,11 @@ def main():
     # ---------------------------------------------------------
     config = ConfigManager.load(args.config)
 
+    if args.seed is not None:
+        config["seed"] = int(args.seed)
+    if args.output_path is not None:
+        config["output_path"] = args.output_path
+
     # Keep evaluation artifacts separate from training artifacts.
     base_output = config["output_path"]
 
@@ -41,6 +59,10 @@ def main():
 
     # This entry point always writes into the simulation subfolder.
     config["output_path"] = simulation_output
+
+    config_effective_path = os.path.join(simulation_output, "config_effective.yml")
+    with open(config_effective_path, "w", encoding="utf-8") as f:
+        yaml.safe_dump(config, f, sort_keys=False)
     
     # Vehicle IDs are assigned humans first, then CAVs.
     N = config["N"]

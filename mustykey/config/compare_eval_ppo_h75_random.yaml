@@ -69,7 +69,7 @@ rl_layer:
   enabled: true
   mode: "inference"
   algorithm: "ppo"
-  model_path: "output/method_compare_random/ppo/training/trained_models/rl_policy.pt"
+  model_path: "output/method_compare_random/ppo/training/trained_models/rl_policy_best.pt"
   delta_alpha_max: 0.1
   alpha_min: 0.9
   alpha_max: 1.6

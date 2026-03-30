@@ -2,3 +2,4 @@ __pycache__/
 *.pyc
 *.pyo
 output/
+DCE_GPU_PIPELINE.md
