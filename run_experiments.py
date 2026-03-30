@@ -22,7 +22,10 @@ import yaml
 
 from src.simulation.scenario_manager import ScenarioManager
 from src.utils.config import get_default_config, merge_config, validate_config
-from src.utils.string_stability_metrics import compute_string_stability_from_traces
+from src.utils.string_stability_metrics import (
+    STRING_STABILITY_BASELINE_WINDOW_STEPS,
+    compute_string_stability_from_traces,
+)
 from src.utils.primary_objective import (
     annotate_with_primary_objective,
     SAFE_HEADWAY_M,
@@ -62,9 +65,15 @@ def override_config(base: Dict, human_rate: float, mode: str, seed: int) -> Dict
     cfg["initial_conditions"] = "uniform"
     cfg["perturbation_enabled"] = True
     cfg["perturbation_vehicle"] = 0
-    cfg["perturbation_time"] = 3.0         # 3 seconds of perfect uniformity
+    cfg["warmup_duration"] = float(cfg.get("warmup_duration", 10.0))
+    cfg["warmup_accel_limit"] = float(cfg.get("warmup_accel_limit", 1.0))
+    cfg["noise_warmup_time"] = float(cfg.get("noise_warmup_time", cfg["warmup_duration"]))
+    baseline_window_seconds = STRING_STABILITY_BASELINE_WINDOW_STEPS * float(cfg["dt"])
+    cfg["perturbation_time"] = max(
+        cfg["warmup_duration"],
+        cfg["noise_warmup_time"],
+    ) + baseline_window_seconds
     cfg["perturbation_delta_v"] = -2.0
-    cfg["noise_warmup_time"] = 3.0         # Suppress noise for first 3 seconds
     
     # DISABLE VISUALIZATION for batch experiments (much faster)
     cfg["enable_live_viz"] = False

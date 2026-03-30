@@ -44,9 +44,11 @@ DEFAULT_SIM_PARAMS = {
     "initial_conditions": "uniform",     # "uniform" or "random"
     "perturbation_enabled": True,        # Enable perturbation injection
     "perturbation_vehicle": 0,           # Vehicle ID to perturb
-    "perturbation_time": 10.0,           # When to apply (seconds)
+    "perturbation_time": 11.0,           # After warm-up + one 20-step baseline window
     "perturbation_delta_v": -2.0,        # Speed reduction (m/s)
-    "noise_warmup_time": 10.0            # Suppress noise until this time (0 = always on)
+    "noise_warmup_time": 10.0,           # Suppress noise until this time (0 = always on)
+    "warmup_duration": 10.0,             # Clamp acceleration during startup transients
+    "warmup_accel_limit": 1.0            # Warm-up acceleration limit (m/s^2)
 }
 
 

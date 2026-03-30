@@ -5,6 +5,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
 ENV_NAME="${ENV_NAME:-mixed_traffic}"
+PYTHON_BIN="${PYTHON_BIN:-python}"
 MPL_DIR="${MPLCONFIGDIR:-/tmp/mpl}"
 CONFIG_DIR="config/rerun_20260323_ep800"
 BASE_OUTPUT="output/method_compare_random_rerun_20260323_ep800"
@@ -21,14 +22,25 @@ log_status() {
   printf '[%s] %s\n' "$(timestamp)" "$1" | tee -a "$STATUS_FILE"
 }
 
+has_conda_env() {
+  command -v conda >/dev/null 2>&1 || return 1
+  conda env list | awk '{print $1}' | grep -Fxq "$ENV_NAME"
+}
+
+if has_conda_env; then
+  PYTHON_CMD=(conda run -n "$ENV_NAME" python)
+else
+  PYTHON_CMD=("$PYTHON_BIN")
+fi
+
 run_training_job() {
   local method="$1"
   local config_path="$2"
   local log_path="$LOG_DIR/${method}_training.log"
   log_status "Starting ${method} training with ${config_path}"
-  env MPLCONFIGDIR="$MPL_DIR" /usr/bin/time -p \
+  MPLCONFIGDIR="$MPL_DIR" /usr/bin/time -p \
     -o "$BASE_OUTPUT/${method}/training_duration.txt" \
-    conda run -n "$ENV_NAME" python run_training.py --config "$config_path" \
+    "${PYTHON_CMD[@]}" run_training.py --config "$config_path" \
     > "$log_path" 2>&1
   log_status "Finished ${method} training"
 }
@@ -39,8 +51,7 @@ run_eval_job() {
   local config_path="$3"
   local log_path="$LOG_DIR/${method}_${tag}_simulation.log"
   log_status "Starting ${method} ${tag} simulation with ${config_path}"
-  env MPLCONFIGDIR="$MPL_DIR" conda run -n "$ENV_NAME" \
-    python run_simulation.py --config "$config_path" \
+  MPLCONFIGDIR="$MPL_DIR" "${PYTHON_CMD[@]}" run_simulation.py --config "$config_path" \
     > "$log_path" 2>&1
   log_status "Finished ${method} ${tag} simulation"
 }
@@ -48,8 +59,7 @@ run_eval_job() {
 build_report() {
   local log_path="$LOG_DIR/report_build.log"
   log_status "Building comparison report"
-  env MPLCONFIGDIR="$MPL_DIR" conda run -n "$ENV_NAME" python \
-    scripts/build_rl_comparison_report.py \
+  MPLCONFIGDIR="$MPL_DIR" "${PYTHON_CMD[@]}" scripts/build_rl_comparison_report.py \
     --base-output "$BASE_OUTPUT" \
     --methods no_rl ppo sac \
     --training-methods ppo sac \

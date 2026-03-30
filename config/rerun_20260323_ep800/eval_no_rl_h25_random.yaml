@@ -9,10 +9,11 @@ output_path: "output/method_compare_random_rerun_20260323_ep800/no_rl/h25"
 initial_conditions: "random"
 perturbation_enabled: true
 perturbation_vehicle: 0
-perturbation_time: 3.0
+perturbation_time: 12.0
 perturbation_delta_v: -3.0
-noise_warmup_time: 3.0
-
+noise_warmup_time: 10.0
+warmup_duration: 10.0
+warmup_accel_limit: 1.0
 enable_live_viz: false
 viz_update_interval: 10
 play_recording: false
@@ -73,3 +74,5 @@ rl_layer:
   delta_alpha_max: 0.1
   alpha_min: 0.9
   alpha_max: 1.6
+
+

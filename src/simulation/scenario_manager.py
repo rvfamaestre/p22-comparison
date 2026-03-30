@@ -291,6 +291,9 @@ class ScenarioManager:
             "perturbation_vehicle": self.config.get("perturbation_vehicle", 0),
             "perturbation_time": self.config.get("perturbation_time", None),
             "perturbation_delta_v": self.config.get("perturbation_delta_v", None),
+            "noise_warmup_time": self.config.get("noise_warmup_time", None),
+            "warmup_duration": self.config.get("warmup_duration", 10.0),
+            "warmup_accel_limit": self.config.get("warmup_accel_limit", 1.0),
             "macro_teacher": self.config.get("macro_teacher", "none"),
             "save_macro_dataset": self.config.get("save_macro_dataset", False),
             "macro_predictor": self.config.get("macro_predictor", "pde"),
@@ -318,4 +321,3 @@ class ScenarioManager:
         )
 
         return sim
-

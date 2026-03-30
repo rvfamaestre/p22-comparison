@@ -9,6 +9,7 @@ from src.vehicles.unstable_human_vehicle import UnstableHumanVehicle
 from src.vehicles.cav_vehicle import CAVVehicle
 from src.mesoscopic.meso_adapter import MesoAdapter, MesoConfig, CavGains, get_M_leaders_ring
 from src.mesoscopic.rl_layer import ResidualHeadwayRLLayer, RLConfig
+from src.utils.string_stability_metrics import STRING_STABILITY_BASELINE_WINDOW_STEPS
 
 import numpy as np
 
@@ -34,6 +35,9 @@ class Simulator:
         # Collision clamp tracking (for string stability validation)
         self.collision_clamp_count = 0
         self.collision_clamp_events = []  # List of (time, vehicle_id)
+        self.perturbation_applied = False
+        self.perturbation_applied_time = None
+        self.perturbation_target_id = None
 
         # Mesoscopic adaptation layer (human-inspired CAV control)
         self.meso_enabled = self.config.get('mesoscopic', {}).get('enabled', False)
@@ -62,8 +66,13 @@ class Simulator:
             self.meso_adapter = MesoAdapter(self.meso_config, v_max)
 
             print(f"[Simulator] Mesoscopic adaptation ENABLED")
-            print(f"            M={self.meso_config.M}, λ={self.meso_config.lambda_rho}, γ={self.meso_config.gamma}")
-            print(f"            α ∈ [{self.meso_config.alpha_min}, {self.meso_config.alpha_max}]")
+            print(
+                f"            M={self.meso_config.M}, "
+                f"lambda={self.meso_config.lambda_rho}, gamma={self.meso_config.gamma}"
+            )
+            print(
+                f"            alpha in [{self.meso_config.alpha_min}, {self.meso_config.alpha_max}]"
+            )
             print(f"            Gain scheduling: {self.meso_config.enable_gain_scheduling}")
         else:
             self.meso_adapter = None
@@ -86,14 +95,24 @@ class Simulator:
             self.rl_layer = ResidualHeadwayRLLayer(self.rl_config)
             print(f"[Simulator] RL residual layer ENABLED")
             print(f"            algorithm={self.rl_config.algorithm}, mode={self.rl_config.mode}, model={self.rl_config.model_path}")
-            print(f"            Δα_max={self.rl_config.delta_alpha_max}, α ∈ [{self.rl_config.alpha_min}, {self.rl_config.alpha_max}]")
+            print(
+                f"            delta_alpha_max={self.rl_config.delta_alpha_max}, "
+                f"alpha in [{self.rl_config.alpha_min}, {self.rl_config.alpha_max}]"
+            )
         else:
             self.rl_layer = None
             print(f"[Simulator] RL residual layer DISABLED")
 
-        # Warm-up phase to prevent violent transients from tight initial conditions
-        self.warmup_duration = 10.0
-        self.warmup_accel_limit = 1.0
+        # Warm-up phase to prevent violent transients from tight initial conditions.
+        self.warmup_duration = float(self.config.get("warmup_duration", 10.0))
+        self.warmup_accel_limit = float(self.config.get("warmup_accel_limit", 1.0))
+        self.noise_warmup_time = float(self.config.get("noise_warmup_time", 0.0))
+        self.perturbation_enabled = bool(self.config.get("perturbation_enabled", False))
+        self.perturbation_time = (
+            float(self.config.get("perturbation_time", 10.0))
+            if self.perturbation_enabled
+            else None
+        )
 
         # CRITICAL: Initialize ring length in all vehicles for collision prevention
         for v in self.env.vehicles:
@@ -102,6 +121,23 @@ class Simulator:
         print(f"[Simulator] Dynamic topology enabled: Leaders reassigned every timestep")
         print(f"[Simulator] Warm-up phase: {self.warmup_duration}s with |a| <= {self.warmup_accel_limit} m/s²")
         print(f"[Simulator] Collision prevention active: MIN_GAP = 0.3m")
+        if self.perturbation_enabled and self.perturbation_time is not None:
+            protocol_ready_time = max(self.warmup_duration, self.noise_warmup_time)
+            recommended_time = (
+                protocol_ready_time
+                + STRING_STABILITY_BASELINE_WINDOW_STEPS * self.dt
+            )
+            if self.perturbation_time <= protocol_ready_time:
+                print(
+                    "[Simulator] WARNING: perturbation_time is not after warm-up/noise "
+                    f"release ({self.perturbation_time:.2f}s <= {protocol_ready_time:.2f}s)."
+                )
+            elif self.perturbation_time < recommended_time:
+                print(
+                    "[Simulator] WARNING: perturbation_time leaves less than one full "
+                    "string-stability baseline window after warm-up "
+                    f"({self.perturbation_time:.2f}s < {recommended_time:.2f}s)."
+                )
 
     def _set_default_rl_diagnostics(self, vehicle, alpha_value):
         """Populate RL diagnostics when no learned residual is applied."""
@@ -161,12 +197,12 @@ class Simulator:
         vehicles = self.env.vehicles
         N = len(vehicles)
 
-        # ===== PERTURBATION INJECTION (Uniform Init Mode) =====
+        # ===== PERTURBATION INJECTION =====
         if (
-            self.config.get("initial_conditions") == "uniform"
-            and self.config.get("perturbation_enabled", False)
-            and self.current_time >= self.config.get("perturbation_time", 10.0)
-            and not hasattr(self, '_perturbation_applied')
+            self.perturbation_enabled
+            and self.perturbation_time is not None
+            and self.current_time >= self.perturbation_time
+            and not self.perturbation_applied
         ):
             target_id = self.config.get("perturbation_vehicle", 0)
             if target_id == -1:
@@ -180,12 +216,20 @@ class Simulator:
                 target_vehicle.v += delta_v
                 target_vehicle.v = max(target_vehicle.v, 0.0)
                 if not self.quiet:
-                    print(f"[Perturbation] VEHICLE ID {target_id}: {old_v:.2f} → {target_vehicle.v:.2f} m/s (Δv={delta_v:.1f}) at t={self.current_time:.1f}s")
-                self._perturbation_applied = True
+                    print(
+                        f"[Perturbation] VEHICLE ID {target_id}: "
+                        f"{old_v:.2f} -> {target_vehicle.v:.2f} m/s "
+                        f"(delta_v={delta_v:.1f}) at t={self.current_time:.1f}s"
+                    )
+                self.perturbation_applied = True
+                self.perturbation_applied_time = float(self.current_time)
+                self.perturbation_target_id = int(target_id)
             else:
                 if not self.quiet:
                     print(f"[Perturbation] ERROR: Vehicle ID {target_id} not found!")
-                self._perturbation_applied = True
+                self.perturbation_applied = True
+                self.perturbation_applied_time = float(self.current_time)
+                self.perturbation_target_id = int(target_id)
 
         # ===== STEP 0: SORT AND REASSIGN LEADERS =====
         vehicles.sort(key=lambda v: v.x)
@@ -202,7 +246,7 @@ class Simulator:
             state_info.append((v, s, dv_cacc))
 
         # ===== STEP 2: Compute Accelerations =====
-        noise_warmup = self.config.get('noise_warmup_time', 0.0)
+        noise_warmup = self.noise_warmup_time
 
         # Use previous timestep accelerations for feedforward initialization
         accelerations = [v.acceleration if hasattr(v, 'acceleration') else 0.0 for v in vehicles]
@@ -401,14 +445,65 @@ class Simulator:
         # Save collision counts into metadata before logger.save()
         self.logger.metadata["collision_count"] = self.collision_count
         self.logger.metadata["collision_clamp_count"] = self.collision_clamp_count
+        self.logger.metadata["noise_warmup_time"] = self.noise_warmup_time
+        self.logger.metadata["warmup_duration"] = self.warmup_duration
+        self.logger.metadata["warmup_accel_limit"] = self.warmup_accel_limit
+        self.logger.metadata["perturbation_enabled"] = self.perturbation_enabled
+        self.logger.metadata["perturbation_time"] = self.perturbation_time
+        self.logger.metadata["perturbation_applied"] = bool(self.perturbation_applied)
+        self.logger.metadata["perturbation_applied_time"] = self.perturbation_applied_time
+        self.logger.metadata["perturbation_target_id"] = self.perturbation_target_id
+
+        analysis_perturbation_time = (
+            self.perturbation_applied_time
+            if self.perturbation_applied_time is not None
+            else self.perturbation_time
+        )
+        clamp_events = [
+            {"time": float(t), "vehicle_id": int(vid)}
+            for t, vid in self.collision_clamp_events
+        ]
+        if analysis_perturbation_time is None:
+            pre_events = clamp_events
+            post_events = []
+        else:
+            pre_events = [
+                event for event in clamp_events
+                if float(event["time"]) < float(analysis_perturbation_time)
+            ]
+            post_events = [
+                event for event in clamp_events
+                if float(event["time"]) >= float(analysis_perturbation_time)
+            ]
+
+        protocol_ready_time = max(self.warmup_duration, self.noise_warmup_time)
+        recommended_perturbation_time = (
+            protocol_ready_time
+            + STRING_STABILITY_BASELINE_WINDOW_STEPS * self.dt
+        )
+        self.logger.metadata["collision_clamp_events"] = clamp_events
+        self.logger.metadata["pre_perturbation_collision_clamp_count"] = len(pre_events)
+        self.logger.metadata["post_perturbation_collision_clamp_count"] = len(post_events)
+        self.logger.metadata["pre_perturbation_collision_clamp_events"] = pre_events
+        self.logger.metadata["post_perturbation_collision_clamp_events"] = post_events
+        self.logger.metadata["protocol_ready_time"] = protocol_ready_time
+        self.logger.metadata["protocol_recommended_perturbation_time"] = recommended_perturbation_time
+        self.logger.metadata["protocol_perturbation_after_warmup"] = bool(
+            analysis_perturbation_time is not None
+            and analysis_perturbation_time > protocol_ready_time
+        )
+        self.logger.metadata["protocol_baseline_window_after_warmup"] = bool(
+            analysis_perturbation_time is not None
+            and analysis_perturbation_time >= recommended_perturbation_time
+        )
 
         self.logger.save()
 
         if not self.quiet:
             if self.collision_count > 0:
-                print(f"\n⚠ WARNING: {self.collision_count} collision warnings during simulation")
+                print(f"\nWARNING: {self.collision_count} collision warnings during simulation")
             else:
-                print("\n✓ Simulation completed with ZERO collisions")
+                print("\nSimulation completed with ZERO collisions")
 
             if self.collision_clamp_count > 0:
                 print(f"\n CRITICAL: {self.collision_clamp_count} COLLISION CLAMP events (emergency v=0 braking)")
@@ -420,4 +515,4 @@ class Simulator:
                     print(f"       ... and {self.collision_clamp_count - 3} more")
                 print(f"     RECOMMENDATION: Discard this run or tune to prevent clamps.")
             else:
-                print(f" ZERO collision clamps - string stability analysis is VALID")
+                print(" ZERO collision clamps - string stability analysis is VALID")

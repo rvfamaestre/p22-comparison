@@ -7,4 +7,3 @@ __pycache__/
 *.synctex.gz
 *.toc
 output/
-DCE_GPU_PIPELINE.md
