@@ -75,6 +75,9 @@ rl_layer:
   alpha_max: 1.6
 
 rl_training:
+  backend: "vectorized"
+  device: "auto"
+  num_envs: 8
   episodes: 200
   gamma: 0.99
   lr: 0.0003

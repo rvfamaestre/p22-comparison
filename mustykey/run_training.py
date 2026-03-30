@@ -11,8 +11,18 @@ import json
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+import torch
 from tqdm import tqdm
 
+from src.gpu import (
+    VecEnvConfig,
+    VecRingRoadEnv,
+    VectorizedPPOTrainer,
+    VectorizedRolloutBuffer,
+    VectorizedSACTrainer,
+    compute_episode_metrics,
+    resolve_torch_device,
+)
 from src.utils.config_manager import ConfigManager
 from src.utils.early_stopping import EarlyStoppingConfig, EarlyStopMonitor
 from src.simulation.scenario_manager import ScenarioManager
@@ -100,7 +110,7 @@ def plot_metrics(metrics_history, model_dir):
         plt.close()
 
 
-def build_trainer(config, train_cfg, algorithm):
+def build_cpu_trainer(config, train_cfg, algorithm):
     """Create the configured PPO or SAC trainer."""
     if algorithm == "ppo":
         return PPOTrainer(
@@ -139,6 +149,45 @@ def build_trainer(config, train_cfg, algorithm):
             normalize_states=train_cfg.get("normalize_states", True),
             normalize_rewards=train_cfg.get("normalize_rewards", True),
             reward_scale_epsilon=train_cfg.get("reward_scale_epsilon", 1e-6),
+        )
+
+    raise ValueError(f"Unsupported RL algorithm: {algorithm}")
+
+
+def build_vectorized_trainer(config, train_cfg, algorithm, device):
+    """Create the batched torch trainer used by the vectorized backend."""
+    if algorithm == "ppo":
+        return VectorizedPPOTrainer(
+            state_dim=8,
+            lr=train_cfg["lr"],
+            gamma=train_cfg["gamma"],
+            clip=train_cfg["clip"],
+            train_epochs=train_cfg["train_epochs"],
+            gae_lambda=train_cfg.get("gae_lambda", 0.95),
+            minibatch_size=train_cfg.get("minibatch_size", 256),
+            value_coef=train_cfg.get("value_coef", 0.5),
+            entropy_coef=train_cfg.get("entropy_coef", 1e-3),
+            max_grad_norm=train_cfg.get("max_grad_norm", 0.5),
+            device=device,
+        )
+
+    if algorithm == "sac":
+        return VectorizedSACTrainer(
+            state_dim=8,
+            lr=train_cfg["lr"],
+            gamma=train_cfg["gamma"],
+            train_epochs=train_cfg["train_epochs"],
+            tau=train_cfg.get("tau", 0.005),
+            entropy_alpha=train_cfg.get("entropy_alpha", 0.2),
+            batch_size=train_cfg.get("batch_size", 256),
+            replay_size=train_cfg.get("replay_size", 100000),
+            replay_warmup=train_cfg.get("replay_warmup", 2048),
+            auto_entropy_tuning=train_cfg.get("auto_entropy_tuning", True),
+            target_entropy=train_cfg.get("target_entropy", -1.0),
+            normalize_states=train_cfg.get("normalize_states", True),
+            normalize_rewards=train_cfg.get("normalize_rewards", True),
+            reward_scale_epsilon=train_cfg.get("reward_scale_epsilon", 1e-6),
+            device=device,
         )
 
     raise ValueError(f"Unsupported RL algorithm: {algorithm}")
@@ -219,6 +268,296 @@ def collect_rollout_transitions(env, trainer, dt, delta_alpha_max):
     return transitions
 
 
+def build_early_stopping_config(train_cfg, total_steps):
+    es_cfg_dict = train_cfg.get("early_stopping", {})
+    return EarlyStoppingConfig(
+        enabled=es_cfg_dict.get("enabled", True),
+        metric=es_cfg_dict.get("metric", "speed_var_global"),
+        mode=es_cfg_dict.get("mode", "min"),
+        patience=es_cfg_dict.get("patience", train_cfg.get("early_stop_patience", 20)),
+        min_delta=es_cfg_dict.get("min_delta", 0.001),
+        start_step=es_cfg_dict.get("start_step", max(total_steps // 4, 1)),
+        min_checks=es_cfg_dict.get("min_checks", 4),
+        ema_alpha=es_cfg_dict.get("ema_alpha", 0.3),
+        restore_best=es_cfg_dict.get("restore_best", True),
+    )
+
+
+def save_training_artifacts(trainer, metrics_history, es_monitor, model_dir, model_path):
+    trainer.save_model(model_path)
+
+    stats_file = os.path.join(model_dir, "training_metrics.json")
+    with open(stats_file, "w") as f:
+        json.dump(metrics_history, f, indent=4)
+
+    es_summary_file = os.path.join(model_dir, "early_stopping_summary.json")
+    with open(es_summary_file, "w") as f:
+        json.dump(es_monitor.as_dict(), f, indent=4)
+
+    print(f"[Training] Early stopping summary saved to {es_summary_file}")
+    print(f"[Training] Metrics saved to {stats_file}")
+    plot_metrics(metrics_history, model_dir)
+
+
+def run_cpu_training(
+    config,
+    train_cfg,
+    algorithm,
+    episodes,
+    model_dir,
+    model_path,
+    best_model_path,
+    metrics_history,
+    es_config,
+):
+    trainer = build_cpu_trainer(config, train_cfg, algorithm)
+    dt = config["dt"]
+    delta_alpha_max = config.get("rl_layer", {}).get("delta_alpha_max", 0.1)
+    save_every = train_cfg.get("save_every", 20)
+    es_monitor = EarlyStopMonitor(es_config)
+
+    print(f"[Training] Algorithm: {algorithm.upper()}")
+    print(
+        f"[EarlyStop] metric={es_config.metric}, mode={es_config.mode}, "
+        f"patience={es_config.patience}, ema_alpha={es_config.ema_alpha}, "
+        f"start_step={es_config.start_step}, min_checks={es_config.min_checks}"
+    )
+
+    for episode in tqdm(range(episodes), desc="Training"):
+        print("\n========================================")
+        print(f"[Training] Episode {episode}")
+        print("========================================")
+
+        manager = ScenarioManager(config)
+        sim = manager.build(live_viz=None)
+        sim.quiet = True
+
+        attach_trainer_policy(sim, trainer, algorithm)
+        sim.run()
+
+        transitions = collect_rollout_transitions(sim.env, trainer, dt, delta_alpha_max)
+        print(f"[Training] Collected {transitions} transitions")
+
+        if transitions > 0:
+            trainer.train()
+        else:
+            print("[Training] WARNING: No transitions collected, skipping RL update")
+
+        micro_file = os.path.join(config["output_path"], "micro.csv")
+        if os.path.isfile(micro_file):
+            df = pd.read_csv(micro_file)
+            metrics = compute_metrics(df, dt)
+            for key in metrics_history:
+                metrics_history[key].append(metrics[key])
+
+            print("[Metrics]")
+            for key, value in metrics.items():
+                print(f"{key:25s}: {value:.4f}")
+
+            es_result = es_monitor.update(metrics[es_config.metric], step=episode)
+            if es_result["improved"]:
+                trainer.save_model(best_model_path)
+                trainer.save_model(model_path)
+                print(
+                    f"[EarlyStop] New best {es_config.metric} = "
+                    f"{es_result['best_raw_metric']:.4f} "
+                    f"(smoothed={es_result['smoothed_metric']:.4f}) "
+                    f"at episode {episode} -> model saved"
+                )
+            else:
+                print(
+                    f"[EarlyStop] No improvement in {es_config.metric} "
+                    f"for {es_result['checks_since_improvement']}/{es_config.patience} "
+                    f"checks (smoothed={es_result['smoothed_metric']:.4f})"
+                )
+
+            if es_config.enabled and es_result["should_stop"]:
+                print(
+                    f"[EarlyStop] Stopping early at episode {episode}: "
+                    f"{es_config.metric} plateaued for {es_config.patience} checks. "
+                    f"Best={es_result['best_raw_metric']:.4f} at episode {es_result['best_step']}"
+                )
+                if es_config.restore_best:
+                    print(f"[EarlyStop] Restoring best model from {best_model_path}")
+                    trainer.load_model(best_model_path)
+                break
+
+        if (episode + 1) % save_every == 0:
+            trainer.save_model(model_path)
+            print(f"[Training] Model saved: {model_path}")
+
+    return trainer, es_monitor
+
+
+def run_vectorized_training(
+    config,
+    train_cfg,
+    algorithm,
+    episodes,
+    model_dir,
+    model_path,
+    best_model_path,
+    metrics_history,
+    es_config,
+):
+    requested_device = train_cfg.get("device", "auto")
+    device = resolve_torch_device(requested_device)
+    num_envs = int(train_cfg.get("num_envs", 8))
+    total_batches = max((episodes + num_envs - 1) // num_envs, 1)
+    save_every_batches = max((train_cfg.get("save_every", 20) + num_envs - 1) // num_envs, 1)
+
+    if requested_device not in {None, "auto", str(device)} and str(device) == "cpu":
+        print(f"[Training] Requested device '{requested_device}' is unavailable; falling back to CPU.")
+
+    env_cfg = VecEnvConfig.from_config(config)
+    env = VecRingRoadEnv(num_envs=num_envs, cfg=env_cfg, device=device)
+    trainer = build_vectorized_trainer(config, train_cfg, algorithm, device)
+    es_monitor = EarlyStopMonitor(es_config)
+
+    print(f"[Training] Algorithm: {algorithm.upper()}")
+    print(f"[Training] Backend: vectorized ({device.type}), parallel_envs={num_envs}")
+    print(
+        f"[EarlyStop] metric={es_config.metric}, mode={es_config.mode}, "
+        f"patience={es_config.patience}, ema_alpha={es_config.ema_alpha}, "
+        f"start_step={es_config.start_step}, min_checks={es_config.min_checks}"
+    )
+
+    for batch_idx in tqdm(range(total_batches), desc="Training"):
+        print("\n========================================")
+        print(
+            f"[Training] Batch {batch_idx} "
+            f"(episodes {batch_idx * num_envs + 1}-{min((batch_idx + 1) * num_envs, episodes)})"
+        )
+        print("========================================")
+
+        obs, masks, action_lows, action_highs = env.reset()
+        speed_trace = torch.zeros(env_cfg.episode_steps, num_envs, env_cfg.N, device=device)
+        acc_trace = torch.zeros_like(speed_trace)
+        gap_trace = torch.zeros_like(speed_trace)
+
+        if algorithm == "ppo":
+            buffer = VectorizedRolloutBuffer(
+                rollout_steps=env_cfg.episode_steps,
+                num_envs=num_envs,
+                num_vehicles=env_cfg.N,
+                state_dim=8,
+                device=device,
+            )
+
+        transitions = 0
+        next_obs = obs
+        for step_idx in range(env_cfg.episode_steps):
+            if algorithm == "ppo":
+                actions, log_probs, values = trainer.select_actions(
+                    obs,
+                    action_lows,
+                    action_highs,
+                    masks,
+                    deterministic=False,
+                )
+            else:
+                actions, log_probs = trainer.select_actions(
+                    obs,
+                    action_lows,
+                    action_highs,
+                    masks,
+                    deterministic=False,
+                )
+                values = torch.zeros_like(actions)
+
+            done_matrix = torch.zeros_like(actions)
+            next_obs, rewards, done, next_masks, next_action_lows, next_action_highs, _ = env.step(actions)
+            done_matrix = done.unsqueeze(1).expand_as(actions).float()
+
+            if algorithm == "ppo":
+                buffer.add(
+                    obs=obs,
+                    actions=actions,
+                    log_probs=log_probs,
+                    values=values,
+                    rewards=rewards,
+                    dones=done_matrix,
+                    masks=masks,
+                    action_lows=action_lows,
+                    action_highs=action_highs,
+                )
+                transitions += int(masks.sum().item())
+            else:
+                transitions += trainer.add_transitions(
+                    obs=obs,
+                    actions=actions,
+                    rewards=rewards,
+                    next_obs=next_obs,
+                    dones=done_matrix,
+                    masks=masks,
+                    action_lows=action_lows,
+                    action_highs=action_highs,
+                    next_action_lows=next_action_lows,
+                    next_action_highs=next_action_highs,
+                )
+
+            speed_trace[step_idx] = env.v
+            acc_trace[step_idx] = env.a_prev
+            gap_trace[step_idx] = env.last_gaps
+
+            obs = next_obs
+            masks = next_masks
+            action_lows = next_action_lows
+            action_highs = next_action_highs
+
+        print(f"[Training] Collected {transitions} vectorized transitions")
+
+        if algorithm == "ppo":
+            trainer_info = trainer.update(buffer, next_obs)
+        else:
+            trainer_info = trainer.update()
+        if trainer_info:
+            print(f"[Training] Update summary: {trainer_info}")
+
+        batch_metrics = compute_episode_metrics(speed_trace, acc_trace, gap_trace, env_cfg.dt)
+        metrics = {key: float(values.mean().item()) for key, values in batch_metrics.items()}
+        for key in metrics_history:
+            metrics_history[key].append(metrics[key])
+
+        print("[Metrics]")
+        for key, value in metrics.items():
+            print(f"{key:25s}: {value:.4f}")
+
+        es_result = es_monitor.update(metrics[es_config.metric], step=batch_idx)
+        if es_result["improved"]:
+            trainer.save_model(best_model_path)
+            trainer.save_model(model_path)
+            print(
+                f"[EarlyStop] New best {es_config.metric} = "
+                f"{es_result['best_raw_metric']:.4f} "
+                f"(smoothed={es_result['smoothed_metric']:.4f}) "
+                f"at batch {batch_idx} -> model saved"
+            )
+        else:
+            print(
+                f"[EarlyStop] No improvement in {es_config.metric} "
+                f"for {es_result['checks_since_improvement']}/{es_config.patience} "
+                f"checks (smoothed={es_result['smoothed_metric']:.4f})"
+            )
+
+        if es_config.enabled and es_result["should_stop"]:
+            print(
+                f"[EarlyStop] Stopping early at batch {batch_idx}: "
+                f"{es_config.metric} plateaued for {es_config.patience} checks. "
+                f"Best={es_result['best_raw_metric']:.4f} at batch {es_result['best_step']}"
+            )
+            if es_config.restore_best:
+                print(f"[EarlyStop] Restoring best model from {best_model_path}")
+                trainer.load_model(best_model_path)
+            break
+
+        if (batch_idx + 1) % save_every_batches == 0:
+            trainer.save_model(model_path)
+            print(f"[Training] Model saved: {model_path}")
+
+    return trainer, es_monitor
+
+
 def main():
     parser = argparse.ArgumentParser(description="Train RL policy for ring-road control")
 
@@ -234,6 +573,14 @@ def main():
         type=int,
         default=None,
         help="Number of training episodes (overrides config)"
+    )
+
+    parser.add_argument(
+        "--backend",
+        type=str,
+        default=None,
+        choices=["cpu", "vectorized"],
+        help="Training backend override"
     )
 
     args = parser.parse_args()
@@ -276,152 +623,43 @@ def main():
 
     print(f"[Training] Models will be saved to: {model_path}")
 
-    # ---------------------------------------------------------
-    # RL trainer
-    # ---------------------------------------------------------
     algorithm = config.get("rl_layer", {}).get("algorithm", "ppo").lower()
-    trainer = build_trainer(config, train_cfg, algorithm)
-
-    print(f"[Training] Algorithm: {algorithm.upper()}")
-
     episodes = args.episodes if args.episodes is not None else train_cfg.get("episodes", 200)
-    save_every = train_cfg.get("save_every", 20)
-    dt = config["dt"]
-    delta_alpha_max = config.get("rl_layer", {}).get("delta_alpha_max", 0.1)
-
-    # ---------------------------------------------------------
-    # Store metrics over episodes
-    # ---------------------------------------------------------
+    backend = (args.backend or train_cfg.get("backend", "cpu")).lower()
     metrics_history = {key: [] for key in METRIC_KEYS}
+    total_steps_for_early_stop = episodes
+    if backend == "vectorized":
+        num_envs = int(train_cfg.get("num_envs", 8))
+        total_steps_for_early_stop = max((episodes + num_envs - 1) // num_envs, 1)
 
-    # ---------------------------------------------------------
-    # Early stopping (EarlyStopMonitor with EMA smoothing)
-    # ---------------------------------------------------------
-    es_cfg_dict = train_cfg.get("early_stopping", {})
-    es_config = EarlyStoppingConfig(
-        enabled=es_cfg_dict.get("enabled", True),
-        metric=es_cfg_dict.get("metric", "speed_var_global"),
-        mode=es_cfg_dict.get("mode", "min"),
-        patience=es_cfg_dict.get("patience", train_cfg.get("early_stop_patience", 20)),
-        min_delta=es_cfg_dict.get("min_delta", 0.001),
-        start_step=es_cfg_dict.get("start_step", max(episodes // 4, 1)),
-        min_checks=es_cfg_dict.get("min_checks", 4),
-        ema_alpha=es_cfg_dict.get("ema_alpha", 0.3),
-        restore_best=es_cfg_dict.get("restore_best", True),
-    )
-    es_monitor = EarlyStopMonitor(es_config)
-    print(f"[EarlyStop] metric={es_config.metric}, mode={es_config.mode}, "
-          f"patience={es_config.patience}, ema_alpha={es_config.ema_alpha}, "
-          f"start_step={es_config.start_step}, min_checks={es_config.min_checks}")
+    es_config = build_early_stopping_config(train_cfg, total_steps_for_early_stop)
 
-    # ---------------------------------------------------------
-    # Training loop
-    # ---------------------------------------------------------
-    for episode in tqdm(range(episodes), desc="Training"):
-        print("\n========================================")
-        print(f"[Training] Episode {episode}")
-        print("========================================")
+    if backend == "vectorized":
+        trainer, es_monitor = run_vectorized_training(
+            config,
+            train_cfg,
+            algorithm,
+            episodes,
+            model_dir,
+            model_path,
+            best_model_path,
+            metrics_history,
+            es_config,
+        )
+    else:
+        trainer, es_monitor = run_cpu_training(
+            config,
+            train_cfg,
+            algorithm,
+            episodes,
+            model_dir,
+            model_path,
+            best_model_path,
+            metrics_history,
+            es_config,
+        )
 
-        manager = ScenarioManager(config)
-        sim = manager.build(live_viz=None)
-        sim.quiet = True
-
-        attach_trainer_policy(sim, trainer, algorithm)
-
-        sim.run()
-
-        # -----------------------------------------------------
-        # Collect RL transitions from the simulator-side rollout history
-        # -----------------------------------------------------
-        transitions = collect_rollout_transitions(sim.env, trainer, dt, delta_alpha_max)
-
-        print(f"[Training] Collected {transitions} transitions")
-
-        # -----------------------------------------------------
-        # RL update
-        # -----------------------------------------------------
-        if transitions > 0:
-            trainer.train()
-        else:
-            print("[Training] WARNING: No transitions collected, skipping RL update")
-
-        # -----------------------------------------------------
-        # Load micro trajectory file for evaluation
-        # -----------------------------------------------------
-        micro_file = os.path.join(training_output, "micro.csv")
-
-        if os.path.isfile(micro_file):
-            df = pd.read_csv(micro_file)
-            metrics = compute_metrics(df, dt)
-
-            for k in metrics_history:
-                metrics_history[k].append(metrics[k])
-
-            print("[Metrics]")
-            for k, v_metric in metrics.items():
-                print(f"{k:25s}: {v_metric:.4f}")
-
-            current_metric = metrics[es_config.metric]
-            es_result = es_monitor.update(current_metric, step=episode)
-
-            if es_result["improved"]:
-                trainer.save_model(best_model_path)
-                trainer.save_model(model_path)
-                print(
-                    f"[EarlyStop] New best {es_config.metric} = "
-                    f"{es_result['best_raw_metric']:.4f} "
-                    f"(smoothed={es_result['smoothed_metric']:.4f}) "
-                    f"at episode {episode} -> model saved"
-                )
-            else:
-                print(
-                    f"[EarlyStop] No improvement in {es_config.metric} "
-                    f"for {es_result['checks_since_improvement']}/{es_config.patience} "
-                    f"checks (smoothed={es_result['smoothed_metric']:.4f})"
-                )
-
-            if es_config.enabled and es_result["should_stop"]:
-                print(
-                    f"[EarlyStop] Stopping early at episode {episode}: "
-                    f"{es_config.metric} plateaued for {es_config.patience} checks. "
-                    f"Best={es_result['best_raw_metric']:.4f} at episode {es_result['best_step']}"
-                )
-                if es_config.restore_best:
-                    print(f"[EarlyStop] Restoring best model from {best_model_path}")
-                    trainer.load_model(best_model_path)
-                break
-
-        # -----------------------------------------------------
-        # Save model periodically
-        # -----------------------------------------------------
-        if (episode + 1) % save_every == 0:
-            trainer.save_model(model_path)
-            print(f"[Training] Model saved: {model_path}")
-
-    # ---------------------------------------------------------
-    # Final save
-    # ---------------------------------------------------------
-    trainer.save_model(model_path)
-
-    # ---------------------------------------------------------
-    # Save training statistics
-    # ---------------------------------------------------------
-    stats_file = os.path.join(model_dir, "training_metrics.json")
-
-    with open(stats_file, "w") as f:
-        json.dump(metrics_history, f, indent=4)
-
-    es_summary_file = os.path.join(model_dir, "early_stopping_summary.json")
-    with open(es_summary_file, "w") as f:
-        json.dump(es_monitor.as_dict(), f, indent=4)
-    print(f"[Training] Early stopping summary saved to {es_summary_file}")
-
-    print(f"[Training] Metrics saved to {stats_file}")
-
-    # ---------------------------------------------------------
-    # Plot learning curves
-    # ---------------------------------------------------------
-    plot_metrics(metrics_history, model_dir)
+    save_training_artifacts(trainer, metrics_history, es_monitor, model_dir, model_path)
 
     print("\n========================================")
     print("[Training] Training complete")
