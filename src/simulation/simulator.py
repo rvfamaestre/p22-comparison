@@ -357,9 +357,11 @@ class Simulator:
             else:
                 raise TypeError(f"Unsupported vehicle type: {type(v).__name__}")
 
-            # IMPORTANT: this applies to ALL vehicles
+            # IMPORTANT: this applies to ALL vehicles during warm-up
+            # Only limit positive acceleration; allow full braking authority
+            # to prevent collision clamps from cascading slow-downs.
             if self.current_time < self.warmup_duration:
-                acc = max(-self.warmup_accel_limit, min(acc, self.warmup_accel_limit))
+                acc = min(acc, self.warmup_accel_limit)
 
             # Save EXECUTED acceleration for RL training (CAVs only)
             if (

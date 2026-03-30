@@ -210,10 +210,12 @@ class VecRingRoadEnv:
         cfg = self.cfg
         nominal_spacing = cfg.L / cfg.N
         sigma_spacing = 0.25 * nominal_spacing
-        min_spacing = 2.5 * max(cfg.idm_s0, cfg.cth_d0)
+        safe_gap = 2.5 * max(cfg.idm_s0, cfg.cth_d0)
+        min_spacing = self.veh_length + safe_gap  # Account for vehicle length
         max_spacing = 1.8 * nominal_spacing
 
         positions = torch.zeros(self.B, cfg.N, device=self.device)
+        all_spacings = torch.zeros(self.B, cfg.N, device=self.device)
         for env_idx in range(self.B):
             first_spacings = torch.randn(cfg.N - 1, device=self.device) * sigma_spacing + nominal_spacing
             first_spacings = first_spacings.clamp(min=min_spacing, max=max_spacing)
@@ -223,10 +225,31 @@ class VecRingRoadEnv:
                 scale = available / max(float(first_spacings.sum().item()), 1e-6)
                 first_spacings = first_spacings * scale
             positions[env_idx, 1:] = torch.cumsum(first_spacings, dim=0)
+            # Store spacings for velocity safety clamp
+            all_spacings[env_idx, :-1] = first_spacings
+            all_spacings[env_idx, -1] = cfg.L - float(first_spacings.sum().item())
 
         velocity_noise = torch.randn(self.B, cfg.N, device=self.device) * 3.0
         self.x = positions
         self.v = (cfg.initial_speed + velocity_noise).clamp(min=0.5, max=cfg.cacc_v_max)
+
+        # Velocity-gap safety clamp: limit closing rate to what warm-up
+        # braking can absorb within the available net gap.
+        # Conservative: 0.3x accounts for cascading braking chains.
+        effective_decel = 0.3 * cfg.warmup_accel_limit
+        for _pass in range(cfg.N):
+            net_gaps = all_spacings - self.veh_length  # (B, N)
+            leader_v = torch.roll(self.v, -1, dims=1)
+            closing_rate = self.v - leader_v
+            usable_gap = (net_gaps - self.min_gap).clamp(min=0.0)
+            max_safe = (2.0 * effective_decel * usable_gap).sqrt()
+            needs_clamp = closing_rate > max_safe
+            self.v = torch.where(
+                needs_clamp,
+                leader_v + max_safe,
+                self.v,
+            )
+        self.v = self.v.clamp(min=0.5, max=cfg.cacc_v_max)
 
     def _apply_pending_perturbation(self) -> None:
         cfg = self.cfg
@@ -507,9 +530,11 @@ class VecRingRoadEnv:
 
         current_time = self.step_count.float() * cfg.dt
         in_warmup = current_time.unsqueeze(1) < cfg.warmup_duration
+        # During warm-up: limit positive acceleration only; allow full
+        # braking authority to prevent collision clamps.
         acc_det = torch.where(
-            in_warmup,
-            acc_det.clamp(min=-cfg.warmup_accel_limit, max=cfg.warmup_accel_limit),
+            in_warmup & (acc_det > cfg.warmup_accel_limit),
+            torch.full_like(acc_det, cfg.warmup_accel_limit),
             acc_det,
         )
 

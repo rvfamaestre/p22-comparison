@@ -111,11 +111,13 @@ class ScenarioManager:
             # =====================================================================
             # RANDOM MODE: Stochastic initial conditions (old default)
             # =====================================================================
-            # Conservative bounds - use 2.5x minimum to prevent early collisions
-            min_spacing = 2.5 * max(
+            # Conservative bounds - account for vehicle length in position spacing
+            vehicle_length = 5.0
+            safe_gap = 2.5 * max(
                 self.config["idm_params"]["s0"],
                 self.config["cth_params"]["d0"]
             )
+            min_spacing = vehicle_length + safe_gap  # Net gap >= safe_gap
             max_spacing = 1.8 * nominal_spacing  # Prevents extreme gaps
             
             spacings = []
@@ -158,10 +160,35 @@ class ScenarioManager:
             # Clamp to physical bounds
             v_max = self.config["acc_params"]["v_max"]
             v_perturb = np.clip(v_perturb, 0.5, v_max)
-            
+
+            # -----------------------------------------------------------
+            # VELOCITY-GAP SAFETY CLAMP
+            # Ensure no follower approaches its leader faster than can be
+            # stopped within the available gap under warm-up braking.
+            # -----------------------------------------------------------
+            warmup_a = float(self.config.get("warmup_accel_limit", 1.0))
+            MIN_GAP = 0.3  # Must match vehicle.py
+            # Conservative deceleration: 0.3x accounts for cascading braking
+            effective_decel = 0.3 * warmup_a
+            # N passes to propagate through worst-case chain of all vehicles
+            for _pass in range(N):
+                for i in range(N):
+                    leader_idx = (i + 1) % N
+                    net_gap = spacings[i] - 5.0  # vehicle_length = 5.0
+                    closing_rate = v_perturb[i] - v_perturb[leader_idx]
+                    if closing_rate > 0 and net_gap > MIN_GAP:
+                        max_safe = np.sqrt(2.0 * effective_decel * (net_gap - MIN_GAP))
+                        if closing_rate > max_safe:
+                            v_perturb[i] = v_perturb[leader_idx] + max_safe
+                    elif net_gap <= MIN_GAP:
+                        v_perturb[i] = min(v_perturb[i], v_perturb[leader_idx])
+
+            v_perturb = np.clip(v_perturb, 0.5, v_max)
+
             print(f"[ScenarioManager] RANDOM initialization:")
             print(f"  - Spacing: {nominal_spacing:.2f}m ± {sigma_spacing:.2f}m")
-            print(f"  - Velocity: {v_nominal:.2f}m/s ± {sigma_v:.2f}m/s")
+            print(f"  - Min spacing (pos-to-pos): {min_spacing:.2f}m (net gap >= {min_spacing - 5.0:.2f}m)")
+            print(f"  - Velocity: {v_nominal:.2f}m/s ± {sigma_v:.2f}m/s (safety-clamped)")
         
         # =========================================================================
         # STEP 4: Create vehicle objects with perturbed initial conditions
