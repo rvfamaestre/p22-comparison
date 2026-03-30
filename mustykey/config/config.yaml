@@ -1,0 +1,224 @@
+# =============================================================================
+# Mixed-Autonomy Ring-Road Simulator Configuration
+# -----------------------------
+# Global simulation parameters
+# -----------------------------
+N: 22                    
+L: 300.0                 # Ring length (meters) 
+dt: 0.1                  # Timestep (seconds) 
+T: 150.0                 # Total simulation time (seconds) - 1500 steps for 2-3 wave cycles
+initial_speed: 5.5       # Start near congested branch (7 m/s causes collapse)
+seed: 42
+output_path: "output/run50H_no:rl_"
+
+# =============================================================================
+# INITIAL CONDITIONS MODE (Critical for Experimental Design)
+# =============================================================================
+# "uniform": All vehicles start with IDENTICAL spacing and velocity
+#            - Best for observing wave emergence from IDM instability
+#            - Mimics Sugiyama et al. (2008) experimental protocol
+#            - Clean causality: dynamics arise purely from model, not initial chaos
+#            - Recommended for scientific analysis and publication
+#
+# "random":  Random spacing and velocity within bounds
+#            - Creates initial transient chaos
+#            - Harder to isolate specific dynamical mechanisms
+#            - Use only for robustness testing
+# =============================================================================
+initial_conditions: "random"   # "uniform" or "random"
+
+# Applied as one-time velocity reduction to a single vehicle
+perturbation_enabled: true       # Enable perturbation injection
+perturbation_vehicle: 0          # Vehicle ID to perturb (-1 for random)
+perturbation_time: 3.0           # When to apply (seconds) - brief uniform period
+perturbation_delta_v: -3.0       # Speed reduction (m/s, negative = slow down)
+
+# Noise warmup 
+noise_warmup_time: 3.0          
+
+# Visualization settings
+enable_live_viz: false    # Enable live visualization
+viz_update_interval: 10  # Update display every N steps (lower = smoother, slower)
+play_recording: false     # Enable playback after simulation
+
+# =============================================================================
+# VEHICLE COMPOSITION
+# =============================================================================
+human_ratio: 0.5        # 0% humans = 100% CAVs for string stability test
+
+# =============================================================================
+# SINGLE HOMOGENEOUS IDM - VALIDATED STOP-AND-GO PARAMETERS
+# =============================================================================
+# Based on Treiber (traffic-simulation.de):
+# "Very low values of a (0.3 m/s²) enhance the formation of stop-and-go traffic"
+#
+# Key insight: Single homogeneous model with a=0.3 is SUFFICIENT
+# No need for mixed population - pure instability mechanism
+# =============================================================================
+idm_params:
+  s0: 2.0       # Minimum gap (meters) - standard
+  T: 1.5        # Time headway (seconds) - realistic value
+  a: 0.3        # CRITICAL: Very low acceleration → slow recovery → WAVES
+  b: 3.0        # Strong braking (m/s²) - b/a = 10 (highly asymmetric)
+  v0: 14.0      # Desired speed (m/s) - moderate (not too high)
+  delta: 4      # Acceleration exponent (standard)
+
+noise_Q: 0.45   # Stochastic noise strength (BALANCED for wave generation + CAV damping capability)
+                # Too low (<0.3): weak waves, hard to show damping benefit
+                # Too high (>0.6): overwhelming noise, CAVs can't dampen
+                # Current: 0.45 = strong enough waves for CAV to demonstrate damping
+
+# =============================================================================
+# CAV VEHICLE MODEL (String-Stable CACC + CTH)
+# =============================================================================
+# Used when human_ratio < 1.0 (e.g., 0.7 means 30% CAVs)
+# Purpose: Demonstrate active wave damping and stabilization
+#
+# CORRECTED CONTROLLER (December 10, 2025):
+# - Full CACC with feedforward (Ploeg 2014, Naus 2010)
+# - String stability conditions:
+#   * kv > ks * hc (basic PD stability)
+#   * kf ≈ 0.5-0.8 (anticipatory control)
+#   * kv0 << ks (free-flow doesn't dominate)
+# - Dynamic leader reassignment every timestep
+# - Smooth free-flow blending (no oscillations)
+# =============================================================================
+acc_params:
+  ks: 0.4      # spacing gain Kp (proportional term) - CORRECTED to match stability analysis
+  kv: 1.3      # velocity gain Kd (derivative/damping term) - CRITICAL for string stability
+               # Increased to 1.3 for critical damping: ζ = 1.3/(2√0.4) = 1.03
+               # String stable margin = kv - ks*hc = 1.3 - 0.4*1.2 = 0.82 ✓
+  kf: 0.95     # feedforward gain (leader acceleration) - CRITICAL for string stability
+               # Near-perfect leader compensation (anticipation prevents lag)
+  kv0: 0.05    # free-flow gain (very small for platoon matching)
+               # Prevents CAVs from pulling away from humans
+  b_max: 3.0   # maximum braking (m/s²) - match human emergency
+  b_comfort: 1.5  # comfort braking (m/s²) - typical passenger comfort
+  a_max: 1.5   # maximum acceleration (m/s²) - realistic CAV limit
+  v_max: 20.0  # speed limit (m/s)
+  v_des: 14.0  # desired velocity (target speed for free-flow)
+
+cth_params:
+  d0: 2.0      # standstill distance (meters) - match human s0
+  hc: 1.2      # time headway (seconds) - more aggressive than human T
+
+# =============================================================
+# MACROFIELD (SPH) GENERATOR
+# =============================================================
+dx: 1.0
+kernel_h: 3.0
+
+# =============================================================================
+# MESOSCOPIC ADAPTATION LAYER (Human-Inspired)
+# =============================================================================
+# Based on Iovine et al. (2015) and Mirabilio et al. (2023)
+# - Adaptive feedforward k_f = k_f_baseline * sqrt(alpha) (NEW!)
+# String stability proof:
+#   Margin = k_v - alpha*h_c*k_s
+#   With k_v=1.3, h_c=1.2, k_s=0.4, alpha_max=1.4:
+#   Margin_min = 1.3 - 1.4*1.2*0.4 = 1.3 - 0.672 = 0.628 (SAFE!)
+# =============================================================================
+
+mesoscopic:
+  enabled: true                     # Master switch for mesoscopic adaptation
+  
+  M: 8                              # Forward-looking window: # vehicles AHEAD (reduced for faster response)
+  lambda_rho: 0.8                   # Stress filter coefficient (REDUCED: faster response, less phase lag)
+  gamma: 0.4                        # Psycho-physical scaling (INCREASED from 0.1 - STRONGER adaptation for wave damping)
+  
+  alpha_min: 0.9                    # Minimum headway scaling (allows tighter following in smooth flow)
+  alpha_max: 1.6                    # Maximum headway scaling (INCREASED for stronger wave damping!)
+                                    # String stability check: kv - alpha*ks*hc = 1.3 - 1.6*0.4*1.2 = 0.532 ✓ (still stable)
+                                    # Larger alpha → larger headway during waves → better damping
+  
+  enable_gain_scheduling: false     # DISABLED: k_s and k_v remain constant (NEW APPROACH)
+                                    # Only h_c and k_f adapt (preserves stability margin)
+  enable_danger_mode: false         # Emergency override (optional)
+  rho_crit: 0.6                     # Critical stress threshold (if danger mode on)
+  
+  # CODE-LEVEL FIXES (Feb 14, 2026) - Additional improvements for stability
+  sigma_v_min_threshold: 0.03       # Minimum variance threshold (m/s) - VERY SENSITIVE (was 0.05, 0.2 originally)
+  v_eps_sigma: 0.5                  # Velocity epsilon for statistics (m/s) - prevents division by zero
+  max_alpha_rate: 0.3               # Maximum alpha rate of change (1/s) - INCREASED for faster response (was 0.2)
+  sigma_v_ema_lambda: 0.5           # EMA smoothing coefficient for sigma_v - REDUCED for faster response (was 0.6, 0.9)
+  enable_k_f_adaptation: true       # ENABLE adaptive feedforward (critical for wave damping)
+  psi_deadband: 0.2                 # Psycho-physical deadband (m/s) - REDUCED for more sensitivity (was 0.3)
+  adaptation_mode: "variance"       # "variance" (increase h with variance - CORRECT for wave damping!) or "spacing_error" (experimental)
+
+rl_layer:
+  enabled: false                  # Master switch for RL residual layer
+  mode: "train"                  # "inference" or "train"
+  algorithm: "ppo"               # "ppo" or "sac"
+  model_path: "output/run50H_rl/training/trained_models/rl_policy.pt"
+
+  delta_alpha_max: 0.1            # Max residual correction |Δalpha|
+  alpha_min: 0.9                  # Final clipped alpha lower bound
+  alpha_max: 1.6                  # Final clipped alpha upper bound
+
+rl_training:
+  episodes: 200
+  gamma: 0.99
+  lr: 0.0003
+  clip: 0.2
+  train_epochs: 10
+  save_every: 20
+  early_stop_patience: 199
+  tau: 0.005
+  entropy_alpha: 0.2
+  batch_size: 256
+  replay_size: 100000          # SAC only: persistent replay capacity
+  replay_warmup: 2048          # SAC only: minimum transitions before updates
+  auto_entropy_tuning: true    # SAC only: learn entropy temperature
+  target_entropy: -1.0         # SAC only: scalar-action target entropy
+  normalize_states: true       # SAC only: running state normalization
+  normalize_rewards: true      # SAC only: scale rewards by running std
+  reward_scale_epsilon: 0.000001
+
+  reward:
+
+    s_min: 2.0        # Minimum safe spacing [m]
+    tau_min: 0.6      # Minimum safe time headway [s]
+
+    j_ref: 3.0        # Reference jerk used for normalization
+    epsilon_v: 0.001  # Prevents division by zero for velocity
+    epsilon_s: 0.001  # Prevents division by zero for spacing
+
+    w_s: 2.0          # Weight for spacing safety violation
+    w_tau: 1.0        # Weight for headway safety violation
+    w_e: 1.0          # Weight for spacing tracking error
+    w_v: 1.0          # Weight for velocity deviation from upstream mean
+    w_j: 0.2          # Weight for jerk penalty
+    w_ss: 0.5         # Weight for string stability penalty
+    w_sigma2: 0.1     # Weight for upstream speed variance penalty
+
+
+# =============================================================================
+# NOTES ON PARAMETER TUNING
+# =============================================================================
+# 
+# M (observation window):
+#   - Higher M (10-15): More stable statistics, less noise, slower adaptation
+#   - Lower M (5-8): Faster response to local changes, more noise
+#   - CURRENT: M=8 balances stability and responsiveness
+#
+# lambda_rho (filter coefficient):
+#   - Higher (0.9): Smoother alpha evolution, slower response, MORE phase lag
+#   - Lower (0.8): Faster response, less phase lag (BETTER for string stability)
+#   - CURRENT: 0.85 reduces phase lag from original 0.9
+#
+# gamma (psycho-physical scaling):
+#   - Higher (0.7-1.0): Stronger response, risk of alpha saturation
+#   - Lower (0.3-0.5): Gentler response, more conservative
+#   - CURRENT: 0.5 (moderate)
+#
+# alpha range [alpha_min, alpha_max]:
+#   - Wider range: Greater behavioral variation, MUST ensure string stability
+#   - Narrower range: More conservative, always safe
+#   - CURRENT: [0.9, 1.4] ensures margin > 0.6 at all times
+#
+# STRING STABILITY VERIFICATION:
+#   With fixed k_s=0.4, k_v=1.3, and varying h_c in [1.08, 1.68]:
+#   - Min margin = 1.3 - 1.4*1.2*0.4 = 0.628 ✓ (excellent)
+#   - Max margin = 1.3 - 0.9*1.2*0.4 = 0.868 ✓ (excellent)
+#   - Adaptive k_f maintains phase relationship
+# =============================================================================

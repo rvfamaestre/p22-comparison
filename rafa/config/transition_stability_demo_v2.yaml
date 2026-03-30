@@ -1,0 +1,74 @@
+# =============================================================================
+# Stability Demonstration V2: IMPROVED CAV Controller
+# =============================================================================
+# Goal: Demonstrate CAV stabilization with properly tuned controller gains
+# Key fix: MUCH stronger damping gains for string stability
+# =============================================================================
+
+# Global parameters  
+N: 16                    # Optimal density - enough for waves, enough space for recovery
+L: 300.0                 # Average spacing: 18.75m (sufficient)
+dt: 0.1
+T: 120.0
+initial_speed: 12.0      # Start below equilibrium to trigger waves
+seed: 42
+output_path: "output/transition_stability_demo_v2"
+
+# Swap parameters
+swap_interval: 20.0
+swap_ratio: 0.25
+
+# Visual zones
+arrival_zone:
+  center_x: 225.0
+  width: 30.0
+
+departure_zone:
+  center_x: 75.0
+  width: 30.0
+
+# =============================================================================
+# HUMAN IDM: MARGINALLY UNSTABLE
+# =============================================================================
+idm_params:
+  s0: 2.0
+  T: 1.3                 # Slightly lower headway (closer following)
+  a: 0.9                 # Moderate acceleration (not too slow)
+  b: 1.5
+  v0: 15.0
+  delta: 4
+
+noise_Q: 0.25            # Moderate noise (not too extreme)
+
+# =============================================================================
+# CAV ACC+CTH: STRONG STRING-STABLE CONTROLLER
+# =============================================================================
+# KEY FIX: Balanced gains with feedforward for proper string stability
+acc_params:
+  ks: 0.6                # Spacing gain (balanced, not aggressive)
+  kv: 1.2                # Velocity gain (balanced, not aggressive)
+  kf: 0.8                # CRITICAL: Feedforward gain for string stability
+  kv0: 0.4               # Free-flow term
+  v_des: 15.0
+  a_max: 2.0             # Maximum acceleration limit
+  b_max: 3.0
+  v_max: 20.0
+
+cth_params:
+  d0: 2.0
+  hc: 1.0                # Same headway as IDM for fair comparison
+
+# Macrofield
+dx: 1.0
+sph_h: 5.0
+
+# Vehicle properties
+vehicle_length: 5.0
+
+# Perturbation to trigger initial wave
+perturbation:
+  enabled: true
+  vehicle_id: 0
+  t_start: 5.0
+  duration: 2.0
+  delta_v: -3.0

@@ -1,0 +1,140 @@
+{
+  "algorithm": "ppo",
+  "checkpoint": "output/hpc_gpu_train/gpu_ppo_step_688128.pt",
+  "config_path": "config/rl_train.yaml",
+  "device": "cuda",
+  "num_envs": 8,
+  "num_raw_rows": 240,
+  "modes": [
+    "baseline",
+    "adaptive",
+    "rl"
+  ],
+  "human_rates": [
+    0.0,
+    0.25,
+    0.5,
+    0.75
+  ],
+  "cav_shares": [
+    1.0,
+    0.75,
+    0.5,
+    0.25
+  ],
+  "seeds": [
+    0,
+    1,
+    2,
+    3,
+    4
+  ],
+  "shuffle_layouts": [
+    "ordered",
+    "shuffled"
+  ],
+  "perturbation_settings": [
+    "off",
+    "on"
+  ],
+  "training_seed": 42,
+  "parallel_envs_per_episode": 8,
+  "training_variation": [
+    {
+      "name": "human_ratio_sampling",
+      "present": true,
+      "details": "Training samples one human ratio per reset from rl.hr_options.",
+      "values": [
+        0.0,
+        0.25,
+        0.5,
+        0.75
+      ]
+    },
+    {
+      "name": "cav_layout_shuffling",
+      "present": true,
+      "details": "Training randomizes which vehicle slots are CAVs on each reset.",
+      "values": [
+        true
+      ]
+    },
+    {
+      "name": "perturbation_curriculum",
+      "present": true,
+      "details": "Training randomizes perturbation timing, magnitude, and target vehicle.",
+      "values": [
+        2.0,
+        8.0,
+        -4.0,
+        -1.0
+      ]
+    },
+    {
+      "name": "stochastic_hdv_noise",
+      "present": true,
+      "details": "Training includes Euler-Maruyama HDV noise, so each rollout realization differs.",
+      "values": [
+        0.45
+      ]
+    }
+  ],
+  "evaluation_variation": [
+    {
+      "name": "explicit_human_rate_grid",
+      "present": true,
+      "details": "Evaluation enumerates the requested human ratios instead of sampling them.",
+      "values": [
+        0.0,
+        0.25,
+        0.5,
+        0.75
+      ]
+    },
+    {
+      "name": "matched_seed_sweep",
+      "present": true,
+      "details": "Evaluation re-runs each condition for every listed seed and reuses the same seed across modes for matched comparisons.",
+      "values": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ]
+    },
+    {
+      "name": "layout_toggle",
+      "present": true,
+      "details": "Evaluation explicitly toggles between ordered and shuffled CAV layouts.",
+      "values": [
+        "ordered",
+        "shuffled"
+      ]
+    },
+    {
+      "name": "perturbation_toggle",
+      "present": true,
+      "details": "Evaluation explicitly toggles perturbation on and off. When perturbation is on, curriculum randomization is disabled so all modes see the same fixed perturbation protocol for a given seed.",
+      "values": [
+        "off",
+        "on"
+      ]
+    }
+  ],
+  "string_stability": {
+    "metric": "max_downstream_speed_error_amplification",
+    "label": "Maximum downstream speed-error amplification",
+    "threshold": 1.0,
+    "baseline_window_steps": 20,
+    "min_source_peak_speed_error": 0.001,
+    "definition": "Apply the configured one-shot speed perturbation to the designated vehicle, measure each vehicle's peak absolute speed error after the perturbation relative to its mean pre-perturbation speed, and report the maximum downstream follower peak divided by the perturbed vehicle's peak.",
+    "interpretation": "Values below or equal to 1.0 indicate that the disturbance does not grow downstream. Values above 1.0 indicate amplification and thus string instability under this controlled perturbation protocol.",
+    "validity_conditions": [
+      "The perturbation scenario must be enabled and occur within the episode horizon.",
+      "A non-empty pre-perturbation baseline window must exist.",
+      "The perturbed vehicle must exhibit a measurable peak speed error.",
+      "No collision clamps may occur in the analyzed rollout."
+    ]
+  }
+}

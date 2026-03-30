@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(grep -E '\\\\.\\(py|yaml|md|txt|ipynb|csv|json\\)$')",
+      "Bash(grep -E \"\\\\.py$\")",
+      "Bash(wc -l rafa/src/**/*.py mustykey/src/**/*.py)",
+      "Bash(find rafa/src -name *.py -exec wc -l {} +)"
+    ]
+  }
+}

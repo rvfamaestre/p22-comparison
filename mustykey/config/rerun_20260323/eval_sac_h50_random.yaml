@@ -1,0 +1,75 @@
+N: 22
+L: 300.0
+dt: 0.1
+T: 150.0
+initial_speed: 5.5
+seed: 42
+output_path: "output/method_compare_random_rerun_20260323/sac/h50"
+
+initial_conditions: "random"
+perturbation_enabled: true
+perturbation_vehicle: 0
+perturbation_time: 3.0
+perturbation_delta_v: -3.0
+noise_warmup_time: 3.0
+
+enable_live_viz: false
+viz_update_interval: 10
+play_recording: false
+
+human_ratio: 0.5
+
+idm_params:
+  s0: 2.0
+  T: 1.5
+  a: 0.3
+  b: 3.0
+  v0: 14.0
+  delta: 4
+
+noise_Q: 0.45
+
+acc_params:
+  ks: 0.4
+  kv: 1.3
+  kf: 0.95
+  kv0: 0.05
+  b_max: 3.0
+  b_comfort: 1.5
+  a_max: 1.5
+  v_max: 20.0
+  v_des: 14.0
+
+cth_params:
+  d0: 2.0
+  hc: 1.2
+
+dx: 1.0
+kernel_h: 3.0
+
+mesoscopic:
+  enabled: true
+  M: 8
+  lambda_rho: 0.8
+  gamma: 0.4
+  alpha_min: 0.9
+  alpha_max: 1.6
+  enable_gain_scheduling: false
+  enable_danger_mode: false
+  rho_crit: 0.6
+  sigma_v_min_threshold: 0.03
+  v_eps_sigma: 0.5
+  max_alpha_rate: 0.3
+  sigma_v_ema_lambda: 0.5
+  enable_k_f_adaptation: true
+  psi_deadband: 0.2
+  adaptation_mode: "variance"
+
+rl_layer:
+  enabled: true
+  mode: "inference"
+  algorithm: "sac"
+  model_path: "output/method_compare_random_rerun_20260323/sac/training/trained_models/rl_policy_best.pt"
+  delta_alpha_max: 0.1
+  alpha_min: 0.9
+  alpha_max: 1.6

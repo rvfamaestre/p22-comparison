@@ -1,0 +1,55 @@
+# =============================================================================
+# Scenario S75: 75% CAV, 25% HDV
+# High penetration mixed-autonomy
+# =============================================================================
+
+scenario_name: "S75_75CAV"
+scenario_description: "High penetration: 75% CAV, 25% HDV"
+
+N: 22
+human_ratio: 0.25  # 25% HDV, 75% CAV (16-17 CAVs)
+L: 300.0
+dt: 0.1
+T: 150.0
+initial_speed: 5.5
+vehicle_length: 5.0
+
+idm_params:
+  s0: 2.0
+  T: 1.5
+  a: 0.3
+  b: 3.0
+  v0: 14.0
+  delta: 4
+
+noise_Q: 0.4
+
+acc_params:
+  ks: 0.4
+  kv: 0.9
+  kf: 0.7
+  kv0: 0.05
+  b_max: 3.0
+  b_comfort: 1.5
+  a_max: 1.5
+  v_max: 20.0
+  v_des: 14.0
+
+cth_params:
+  d0: 2.0
+  hc: 1.2
+
+dx: 1.0
+kernel_h: 3.0
+
+macro_teacher: "arz"
+save_macro_dataset: true
+macro_predictor: "pde"
+
+arz_params:
+  v_max: 30.0
+  rho_jam: 0.2
+  gamma: 1.0
+
+output_path: "datasets/scenario_S75_75CAV/run_000"
+seed: 42

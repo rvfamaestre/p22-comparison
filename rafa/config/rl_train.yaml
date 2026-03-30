@@ -1,0 +1,205 @@
+# =============================================================================
+# RL Training Configuration (full run)
+# =============================================================================
+
+N: 22
+L: 300.0
+dt: 0.1
+T: 150.0          # 1500 steps per episode
+initial_speed: 5.5
+seed: 42
+output_path: "output/rl_train"
+
+initial_conditions: "uniform"
+perturbation_enabled: true
+perturbation_vehicle: 0
+perturbation_time: 3.0
+perturbation_delta_v: -3.0
+noise_warmup_time: 3.0
+
+enable_live_viz: false
+play_recording: false
+
+human_ratio: 0.75           # 75% humans, 25% CAVs
+
+idm_params:
+  s0: 2.0
+  T: 1.5
+  a: 0.3
+  b: 3.0
+  v0: 14.0
+  delta: 4
+
+noise_Q: 0.45
+
+acc_params:
+  ks: 0.4
+  kv: 1.3
+  kf: 0.95
+  kv0: 0.05
+  b_max: 3.0
+  b_comfort: 1.5
+  a_max: 1.5
+  v_max: 20.0
+  v_des: 14.0
+
+cth_params:
+  d0: 3.5
+  hc: 1.2
+
+mesoscopic:
+  enabled: true
+  M: 8
+  lambda_rho: 0.8
+  gamma: 0.4
+  alpha_min: 0.7
+  alpha_max: 2.0
+  enable_gain_scheduling: false
+  enable_danger_mode: false
+  sigma_v_min_threshold: 0.2
+  v_eps_sigma: 0.5
+  max_alpha_rate: 0.2
+  sigma_v_ema_lambda: 0.9
+  enable_k_f_adaptation: false
+  psi_deadband: 0.5
+  adaptation_mode: "highway"
+
+dx: 1.0
+kernel_h: 3.0
+
+macro_teacher: "none"
+save_macro_dataset: false
+
+# =============================================================================
+# RL Configuration
+# =============================================================================
+rl:
+  rl_mode: "residual"
+  output_path: "output/rl_train"
+
+  # Action bounds (wider for exploration)
+  delta_alpha_max: 0.5
+  alpha_min: 0.5
+  alpha_max: 2.0
+
+  # Reward weights (synced with Colab run-8)
+  w_s: 5.0
+  w_tau: 3.0
+  w_v: 5.0               # Raised from 3.0 (run-5): speed is primary objective
+  w_j: 0.15              # Reduced from 0.5 (run-5): soft comfort constraint
+  w_ss: 0.75             # Reduced from 2.0→1.0→0.75 (run-6)
+  w_sigma: 0.5            # Reduced from 4.0→2.0→0.5 (run-6): soft regulariser
+  w_sigma_cav: 2.0        # CAV-local variance (fully controllable signal)
+  w_alpha: 0.3            # Reduced from 1.0 (run-5): free RL to act
+  w_alpha_final: 0.10     # Run-10: 0.0→0.10 (keep gradient guide, prevent α>1 drift)
+  w_damp: 0.3             # Run-9: damping reward weight (was 1.0; lighter touch)
+  sigma_ref_damp: 1.0     # Normalisation scale for damping reward
+  fleet_penalty_scaling: true  # Scale fleet-wide reward by CAV fraction (efficiency + variance only; safety is always full-weight)
+
+  # Collision floor: exponential penalty below critical gap (run-11)
+  w_collision_floor: 10.0       # Weight for exponential safety floor
+  collision_gap_critical: 1.0   # Threshold (m) below which penalty escalates sharply
+
+  # Reference values
+  s_min: 2.0
+  tau_min: 0.8            # Relaxed from 1.0 (run-6): V2V standard 0.6-0.8s
+  v_ref: 5.5              # Raised from 5.0 (run-5): aligned with d0=3.5
+  v_ref_delta: 3.0        # Run-9: adaptive v_ref += v_ref_delta * cav_fraction (was 4.0)
+  adaptive_v_ref: true     # Run-8: enable per-env adaptive v_ref based on CAV fraction
+  j_ref: 5.0
+
+  # PPO hyper-parameters
+  gamma: 0.99
+  lam_gae: 0.95
+  eps_clip: 0.2
+  lr_actor: 3.0e-4
+  lr_critic: 1.0e-3
+  entropy_coef: 0.01
+  value_coef: 0.5
+  max_grad_norm: 0.5
+  ppo_epochs: 10
+  minibatch_size: 64
+  rollout_steps: 1024
+  total_timesteps: 1000000
+  eval_interval: 10000
+  log_interval: 1000
+  save_interval: 200000
+
+  # Network
+  hidden_dim: 128           # Run-10: 256→128 (simpler network converges in 5M steps)
+  num_hidden: 2
+  use_meso_baseline: true
+
+  # Domain randomization
+  hr_options: [0.0, 0.25, 0.5, 0.75]
+  hr_weights: [0.15, 0.20, 0.30, 0.35]  # Oversample hard regimes (run-11)
+  shuffle_cav_positions: true   # Randomise CAV placement each episode
+  normalizer_warmup_steps: 50000
+
+  # Perturbation curriculum (run-8)
+  perturb_curriculum: true       # Randomise perturbation timing/magnitude/target per episode
+  perturb_dv_min: -4.0           # Strongest braking perturbation (m/s)
+  perturb_dv_max: -1.0           # Mildest braking perturbation (m/s)
+  perturb_time_min: 2.0          # Earliest perturbation time (s)
+  perturb_time_max: 8.0          # Latest perturbation time (s)
+  perturb_random_target: true    # Perturb a random vehicle (not just vehicle 0)
+# =============================================================================
+# Accelerator Training Profile
+# =============================================================================
+gpu_training:
+  device: "auto"
+  profile: "local_8core_gpu"
+  output_path: "output/gpu_train_8core"
+  num_envs: 128
+  rollout_steps: 256
+  minibatch_size: 1024
+  eval_num_envs: 8
+
+# =============================================================================
+# SAC Configuration
+# =============================================================================
+# SAC is the preferred next algorithm over PPO for this environment because:
+#   - The stochastic HDV dynamics (Euler-Maruyama noise) produce a different
+#     episode realisation every time. PPO discards this expensive experience
+#     after K PPO epochs. SAC stores it in a replay buffer and re-samples many
+#     times, giving 3-5x better sample efficiency on stochastic envs.
+#   - Auto-entropy tuning (log_alpha) removes the need to manually tune the
+#     exploration coefficient. The algorithm self-balances exploration vs.
+#     exploitation throughout training.
+#   - The actor architecture is identical to the PPO actor, so a PPO checkpoint
+#     can warm-start the SAC actor via --ppo_ckpt flag on train_gpu_sac.py.
+sac:
+  output_path: "output/sac_train"
+
+  # Replay buffer (env steps stored on-device)
+  # 500k rows ≈ 5 min of 1024-env GPU simulation at ~6500 sps
+  replay_buffer_size: 500000
+  warmup_steps: 10000          # collect this many env steps before first update
+
+  # Update schedule (standard SAC ratio: 1 gradient step per env step)
+  update_every: 1              # update networks every N env steps
+  updates_per_step: 1          # gradient updates each time we update
+  batch_size: 256              # SAC minibatch (CAV transitions per update)
+
+  # Optimiser
+  lr_actor: 3.0e-4
+  lr_critic: 3.0e-4             # SAC critics often benefit from faster lr than PPO
+  gamma: 0.99
+
+  # Soft target update
+  tau: 0.005                   # EMA coefficient for target critic update
+
+  # Auto entropy tuning (recommended: keep true)
+  auto_entropy: true
+  alpha_init: 0.2              # initial entropy temperature
+  target_entropy: -1.0         # H_target = -action_dim (one action per CAV)
+
+  # Logging / checkpointing
+  total_timesteps: 2000000     # 2M steps (SAC is more sample-efficient than PPO)
+  log_interval: 10000
+  eval_interval: 0             # 0 = disabled during training (enable if needed)
+  save_interval: 500000
+
+  # Observation normalizer (mirrors PPO: freeze after warmup)
+  normalizer_warmup_steps: 10000
+

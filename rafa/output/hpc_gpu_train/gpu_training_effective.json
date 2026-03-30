@@ -1,0 +1,31 @@
+{
+  "config_path": "config/rl_train.yaml",
+  "device": "cuda",
+  "profile": "local_8core_gpu",
+  "profile_description": "Profile for smaller local GPUs, including 8-core integrated GPUs.",
+  "num_envs": 128,
+  "rollout_steps": 256,
+  "minibatch_size": 1024,
+  "eval_num_envs": 8,
+  "total_timesteps": 1000000,
+  "output_dir": "output/hpc_gpu_train",
+  "seed": 42,
+  "human_ratio": 0.75,
+  "hr_options": [
+    0.0,
+    0.25,
+    0.5,
+    0.75
+  ],
+  "early_stopping": {
+    "enabled": false,
+    "metric": "eval_mean_speed",
+    "mode": "max",
+    "patience": 6,
+    "min_delta": 0.02,
+    "start_step": 250000,
+    "min_checks": 4,
+    "ema_alpha": 0.0,
+    "restore_best": true
+  }
+}

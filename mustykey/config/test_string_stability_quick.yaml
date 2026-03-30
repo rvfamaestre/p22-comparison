@@ -1,0 +1,51 @@
+
+# Quick test config - 100% CAV
+N: 20
+L: 300.0
+dt: 0.1
+T: 15.0
+seed: 42
+
+initial_speed: 15.0
+human_ratio: 0.0  # 100% CAV
+
+# IDM (not used, but required)
+idm_params:
+  s0: 2.0
+  T: 1.5
+  a: 1.0
+  b: 2.0
+  v0: 25.0
+  delta: 4
+
+# ACC parameters (UPDATED)
+acc_params:
+  ks: 0.4
+  kv: 1.3
+  kf: 0.95
+  kv0: 0.05
+  b_max: 3.0
+  v_max: 20.0
+  v_des: 14.0
+
+cth_params:
+  d0: 2.0
+  hc: 1.2
+
+# Mesoscopic (DISABLED - testing baseline first)
+mesoscopic:
+  enabled: false
+
+# Perturbation
+initial_conditions: uniform
+perturbation_enabled: true
+perturbation_time: 10.0
+perturbation_vehicle: 0
+perturbation_delta_v: -2.0
+
+output_path: output/quick_string_stability_test
+dx: 1.0
+kernel_h: 3.0
+enable_live_viz: false
+enable_macro_teacher: false
+save_dataset: false

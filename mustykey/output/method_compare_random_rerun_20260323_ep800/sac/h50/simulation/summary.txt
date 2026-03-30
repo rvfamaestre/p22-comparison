@@ -1,0 +1,54 @@
+RUN SUMMARY
+===========
+
+Metadata
+--------
+N: 22
+L: 300.0
+dt: 0.1
+T: 150.0
+scenario: default
+seed: 42
+initial_conditions: random
+human_ratio: 0.5
+idm_params: {'s0': 2.0, 'T': 1.5, 'a': 0.3, 'b': 3.0, 'v0': 14.0, 'delta': 4}
+stochastic_idm_params: {}
+unstable_idm_params: {}
+noise_Q: 0.45
+noise_Q_stochastic: None
+noise_Q_unstable: None
+acc_params: {'ks': 0.4, 'kv': 1.3, 'kf': 0.95, 'kv0': 0.05, 'b_max': 3.0, 'b_comfort': 1.5, 'a_max': 1.5, 'v_max': 20.0, 'v_des': 14.0}
+cth_params: {'d0': 2.0, 'hc': 1.2}
+mesoscopic: {'enabled': True, 'M': 8, 'lambda_rho': 0.8, 'gamma': 0.4, 'alpha_min': 0.9, 'alpha_max': 1.6, 'enable_gain_scheduling': False, 'enable_danger_mode': False, 'rho_crit': 0.6, 'sigma_v_min_threshold': 0.03, 'v_eps_sigma': 0.5, 'max_alpha_rate': 0.3, 'sigma_v_ema_lambda': 0.5, 'enable_k_f_adaptation': True, 'psi_deadband': 0.2, 'adaptation_mode': 'variance'}
+rl_layer: {'enabled': True, 'mode': 'inference', 'algorithm': 'sac', 'model_path': 'output/method_compare_random_rerun_20260323_ep800/sac/training/trained_models/rl_policy_best.pt', 'delta_alpha_max': 0.1, 'alpha_min': 0.9, 'alpha_max': 1.6}
+perturbation_enabled: True
+perturbation_vehicle: 0
+perturbation_time: 3.0
+perturbation_delta_v: -3.0
+macro_teacher: none
+save_macro_dataset: False
+macro_predictor: pde
+arz_params: {}
+collision_count: 0
+collision_clamp_count: 3
+
+Microscopic summary
+-------------------
+num_micro_records: 33000
+mean_speed: 3.754933
+speed_variance: 1.915758
+min_speed: 0.000000
+max_speed: 10.956835
+oscillation_amplitude: 10.956835
+rms_acc: 0.476911
+min_gap: 0.510000
+mean_gap: 8.636364
+rms_jerk: 6.011286
+collision_count: 0
+collision_clamp_count: 3
+
+Macroscopic summary
+------------------
+num_macro_records: 450000
+mean_rho: 0.073135
+mean_u: 3.767046

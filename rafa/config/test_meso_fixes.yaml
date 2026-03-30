@@ -1,0 +1,72 @@
+# Quick test with mesoscopic adaptation enabled
+# Tests the code fixes for σ_v smoothing and α rate limiting
+
+N: 20
+L: 300.0
+dt: 0.1
+T: 50.0  # Short test
+seed: 42
+vehicle_length: 5.0
+
+output_path: "output/test_meso_fixes"
+
+initial_speed: 20.0
+human_ratio: 0.25  # 75% CAV, 25% human
+noise_Q: 1.0  # Stochastic noise for humans
+
+# Macroscopic parameters (required)
+dx: 1.0
+kernel_h: 3.0
+macro_teacher: "arz"
+save_macro_dataset: false
+
+arz_params:
+  v_max: 30.0
+  rho_jam: 0.2
+  gamma: 1.0
+
+idm_params:
+  s0: 2.0
+  T: 1.5
+  a: 1.0
+  b: 2.0
+  v0: 25.0
+  delta: 4
+
+acc_params:
+  ks: 0.4
+  kv: 1.3
+  kf: 0.95
+  kv0: 0.05
+  b_max: 3.0
+  v_max: 25.0
+  v_des: 20.0
+  a_max: 1.5
+  b_comfort: 1.5
+
+cth_params:
+  d0: 5.0
+  hc: 1.0
+
+# MESOSCOPIC ADAPTATION ENABLED with new parameters
+enable_mesoscopic: true
+meso_config:
+  M: 8
+  lambda_rho: 0.8
+  gamma: 0.5
+  alpha_min: 0.9  # Conservative range for testing
+  alpha_max: 1.4
+  enable_gain_scheduling: true
+  enable_danger_mode: false
+  # NEW PARAMETERS (code fixes):
+  sigma_v_min_threshold: 0.2  # Minimum variance threshold (m/s)
+  v_eps_sigma: 0.5            # Velocity epsilon for stats (m/s)
+  max_alpha_rate: 0.5         # Maximum α rate (1/s)
+
+initial_conditions: "uniform"
+perturbation_enabled: true
+perturbation_time: 10.0
+perturbation_vehicle: 0
+perturbation_delta_v: -3.0
+
+noise_warmup_time: 10.0

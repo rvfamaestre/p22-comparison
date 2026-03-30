@@ -1,0 +1,76 @@
+# String Stability Test Configuration - With Strong Perturbation
+# Tests mesoscopic adaptation under disturbance
+
+N: 22
+L: 300.0
+dt: 0.1 
+T: 150.0
+initial_speed: 10.0
+seed: 42
+output_path: "output/string_stability_mesoscopic_test"
+
+# UNIFORM initial conditions with perturbation
+initial_conditions: "uniform"
+perturbation_enabled: true
+perturbation_vehicle: 0          # Perturb leader
+perturbation_time: 10.0          # After warmup
+perturbation_delta_v: -4.0       # STRONGER perturbation (was -2.0)
+noise_warmup_time: 10.0          # Clean uniformity first
+
+# Visualization
+enable_live_viz: false
+viz_update_interval: 10
+play_recording: false
+
+# ============= 100% CAVs for Pure String Stability Test =============
+human_ratio: 0.0
+
+# HDV parameters (not used, but required)
+idm_params:
+  s0: 2.0
+  T: 1.5
+  a: 0.3
+  b: 3.0
+  v0: 14.0
+  delta: 4
+
+noise_Q: 0.0  # NO NOISE - clean perturbation response
+
+# ============= CAV Parameters (String-Stable CACC) =============
+acc_params:
+  ks: 0.4
+  kv: 1.3      # High damping for string stability
+  kf: 0.95     # High feedforward (will be adapted by mesoscopic layer)
+  kv0: 0.05
+  b_max: 3.0
+  b_comfort: 1.5
+  a_max: 1.5
+  v_max: 20.0
+  v_des: 14.0
+
+cth_params:
+  d0: 2.0
+  hc: 1.2
+
+# ============= Macrofield =============
+dx: 1.0
+kernel_h: 3.0
+
+# Macro teacher (disabled for faster testing)
+macro_teacher: "none"
+save_macro_dataset: false
+
+# ============= MESOSCOPIC ADAPTATION (NEW APPROACH) =============
+mesoscopic:
+  enabled: true                     # ENABLED for string stability testing
+  
+  M: 8                              # Forward-looking window
+  lambda_rho: 0.85                  # Faster filter (less phase lag)
+  gamma: 0.5                        # Moderate psycho-physical response
+  
+  alpha_min: 0.9                    # Narrow range for stability
+  alpha_max: 1.4                    # Safe upper bound (margin >= 0.628)
+  
+  enable_gain_scheduling: false     # CRITICAL: Fixed k_s and k_v
+  enable_danger_mode: false
+  rho_crit: 0.6

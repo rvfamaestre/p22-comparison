@@ -1,0 +1,118 @@
+\section{Reinforcement Learning}
+
+In this project, reinforcement learning (RL) is used to improve the behavior of connected and automated vehicles (CAVs) in mixed traffic. The main idea is not to replace the baseline controller, but to add an adaptive layer on top of it. This learned layer adjusts the time headway policy according to the current traffic situation. In this way, the controller keeps its physical interpretation while gaining the ability to react to complex traffic patterns that are difficult to model explicitly.
+
+\subsection{Fundamentals}
+
+The RL problem is formulated as a Markov Decision Process (MDP),
+\[
+\mathcal{M} = (\mathcal{S}, \mathcal{A}, P, r),
+\]
+where $\mathcal{S}$ is the state space, $\mathcal{A}$ is the action space, $P$ represents the traffic dynamics, and $r$ is the reward.
+
+At each time step, the agent observes the traffic state, selects an action, applies it to the controller, and receives a reward. In our framework, the state of each CAV $i$ is defined as
+\[
+x_i =
+(\mu_{v,i}, \sigma_{v,i}^2, v_i, s_i, \Delta v_i, a_{\ell(i)}, \alpha_i^{prev}),
+\]
+where $\mu_{v,i}$ and $\sigma_{v,i}^2$ are the upstream mean velocity and velocity variance, $v_i$ is the vehicle speed, $s_i$ is the spacing to the leader, $\Delta v_i$ is the relative speed, $a_{\ell(i)}$ is the leader acceleration, and $\alpha_i^{prev}$ is the previously applied headway scaling factor.
+
+This state combines \emph{microscopic} information, such as spacing and relative velocity, with \emph{mesoscopic} information, such as the average speed and speed variance of upstream traffic. This is important because local measurements alone may not be enough to detect the development of traffic waves.
+
+The action is a residual correction of the headway scaling:
+\[
+\mathcal{A} = \{\Delta\alpha_i \in [-\Delta\alpha_{\max}, +\Delta\alpha_{\max}]\}.
+\]
+The final headway scaling factor is then given by
+\[
+\alpha_i(t) =
+\mathrm{clip}\left(\alpha_i^{rule}(t) + \Delta\alpha_i(t)\right),
+\]
+where $\alpha_i^{rule}(t)$ is the baseline headway scaling provided by the rule-based mesoscopic module. Therefore, RL only refines the baseline decision instead of replacing it. The learned policy can be written as
+\[
+\pi : \mathcal{S} \rightarrow \mathcal{A}, 
+\qquad \Delta\alpha_i(t) = \pi(x_i(t)).
+\]
+
+\subsection{Reward design}
+
+The reward function is designed to encourage safe, smooth, and efficient traffic behavior while improving string stability. The total reward is
+\[
+r_t =
+r_{\mathrm{sf}}[t]
++
+r_{\mathrm{sp}}[t]
++
+r_{\mathrm{ef}}[t]
++
+r_{\mathrm{cf}}[t]
++
+r_{\mathrm{ss}}[t]
++
+r_{\sigma^2}[t].
+\]
+
+The desired spacing is defined by
+\[
+s_i^{des}[t] = d_0 + h_i'[t]\,v_i[t],
+\]
+and the spacing error is
+\[
+e_i[t] = s_i[t] - s_i^{des}[t].
+\]
+
+The different reward terms have a clear physical meaning:
+\begin{itemize}
+    \item $r_{\mathrm{sf}}$: safety term, penalizing unsafe spacing and too small time headway;
+    \item $r_{\mathrm{sp}}$: spacing regulation term, encouraging tracking of the desired spacing;
+    \item $r_{\mathrm{ef}}$: efficiency term, encouraging the vehicle speed to remain close to the upstream mean speed;
+    \item $r_{\mathrm{cf}}$: comfort term, penalizing high jerk;
+    \item $r_{\mathrm{ss}}$: string stability term, penalizing amplification of spacing errors along the platoon;
+    \item $r_{\sigma^2}$: traffic smoothness term, penalizing large velocity variance in the traffic stream.
+\end{itemize}
+
+This reward formulation is useful because it combines several objectives into a single learning signal. It allows the RL agent to balance local vehicle behavior and global traffic quality.
+
+\subsection{PPO}
+
+Proximal Policy Optimization (PPO) is a policy-gradient RL algorithm that updates the policy in a stable and conservative way. Its main advantage is that it is simple to implement and usually robust during training. PPO avoids large policy updates by using a clipped objective:
+\[
+L^{\mathrm{PPO}}(\theta)
+=
+\mathbb{E}_t
+\left[
+\min\left(
+r_t(\theta)\hat{A}_t,\;
+\mathrm{clip}(r_t(\theta),1-\epsilon,1+\epsilon)\hat{A}_t
+\right)
+\right],
+\]
+where
+\[
+r_t(\theta)=\frac{\pi_\theta(a_t|s_t)}{\pi_{\theta_{\mathrm{old}}}(a_t|s_t)},
+\]
+and $\hat{A}_t$ is the estimated advantage.
+
+For our problem, PPO is attractive because the action is continuous and the controller must remain stable during learning. It is a good candidate for a first implementation because of its simplicity and reliability.
+
+\subsection{SAC}
+
+Soft Actor-Critic (SAC) is another RL algorithm for continuous control. Unlike PPO, SAC is an off-policy method and includes an entropy term in its objective:
+\[
+J(\pi)
+=
+\sum_t
+\mathbb{E}
+\left[
+r(s_t,a_t) + \beta \mathcal{H}(\pi(\cdot|s_t))
+\right],
+\]
+where $\mathcal{H}(\pi(\cdot|s_t))$ is the policy entropy and $\beta$ controls the exploration level.
+
+The main interest of SAC is its good sample efficiency and its strong performance in continuous-action problems. Since our action is a continuous residual correction $\Delta\alpha_i$, SAC is also well suited to this framework. However, compared with PPO, SAC is usually more complex to tune and explain. We also chose to consider SAC because the mixed-traffic environment is stochastic due to HDV behavior. SAC learns from a replay buffer containing past interactions, which allows it to reuse previous experience instead of relying only on newly collected data. This can make learning more sample-efficient and potentially more robust to traffic variability. In contrast, PPO uses mainly the data generated by the current policy at each training iteration. For this reason, PPO is often easier to implement, while SAC is an interesting alternative for noisy and stochastic environments.
+
+\subsection{Role of RL in the proposed framework}
+
+The role of RL in our approach is to make the controller adaptive while preserving the original control structure. The baseline controller still ensures a physically meaningful longitudinal behavior, while RL improves the headway adaptation using both microscopic and mesoscopic traffic information.
+
+This integration has three main advantages. First, it keeps the controller interpretable for a control-theory audience. Second, it allows the CAV to react not only to its immediate leader, but also to collective upstream traffic conditions. Third, it avoids solving a complex optimization problem online at each time step. For these reasons, RL is a suitable tool for improving stability and smoothness in mixed traffic.

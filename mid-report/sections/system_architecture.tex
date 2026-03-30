@@ -1,0 +1,110 @@
+\section{System Architecture}
+
+The proposed system is organized as a layered control architecture for mixed traffic on a ring road. Its main objective is to combine microscopic control with mesoscopic traffic awareness. The complete framework can be divided into four main parts: the simulation layer, the mesoscopic perception layer, the mesoscopic adaptation layer, and the control layer. Each part has a specific role, and together they allow the CAVs to react not only to their immediate leader but also to the collective traffic conditions upstream.
+
+\subsection{Overall structure}
+
+\begin{figure}[!htbp]
+    \centering
+    \includegraphics[width=\textwidth]{images/system_architecture.png}
+    \caption{Overview of the proposed system architecture.}
+    \label{fig:system_architecture}
+\end{figure}
+
+The simulation layer represents the mixed-traffic environment, where human-driven vehicles (HDVs) and connected and automated vehicles (CAVs) evolve on the same road. At each time step, the CAV receives observations from the traffic environment, processes them through two perception channels, computes an adaptive parameter, and finally applies the resulting control law. In this way, the architecture separates \emph{observation}, \emph{adaptation}, and \emph{actuation}, which makes the framework easier to interpret from a control perspective.
+
+\subsection{Simulation layer}
+
+The simulation layer contains the traffic environment and generates the variables needed by the control framework. The road is modeled as a ring road, which avoids boundary effects and makes the appearance of traffic oscillations easier to study. HDVs and CAVs coexist in the same environment, but only the CAVs use the adaptive control architecture.
+
+This layer provides the real-time traffic variables used by the upper layers, such as positions, velocities, spacing, and acceleration. It is therefore the source of both local and collective traffic information.
+
+\subsection{Mesoscopic perception layer}
+
+The perception layer extracts the information used by the controller. It contains two complementary observers.
+
+\paragraph{Microscopic observer.}
+The microscopic observer describes the local car-following situation of vehicle $i$. It uses the spacing, relative velocity, and ego speed:
+\[
+x_i^{\mathrm{micro}} =
+\begin{bmatrix}
+s_i & \Delta v_i & a_{i-1}
+\end{bmatrix}^{\top},
+\]
+with
+\[
+s_i = p_{i-1} - p_i,
+\qquad
+\Delta v_i = v_{i-1} - v_i.
+\]
+These variables describe the immediate interaction with the preceding vehicle and are the standard quantities used by longitudinal controllers.
+
+\paragraph{Macroscopic observer.}
+The second observer captures collective traffic behavior upstream of the CAV. Instead of looking only at the leader, it summarizes the traffic state over a perception horizon. The two main quantities are the upstream mean velocity and the upstream velocity variance:
+\[
+x_i^{\mathrm{macro}} =
+\begin{bmatrix}
+\mu_v & \sigma_v^2
+\end{bmatrix}^{\top},
+\]
+with
+\[
+\mu_v = \frac{1}{M}\sum_{j=1}^{M} v_{i+j},
+\qquad
+\sigma_v^2 = \frac{1}{M}\sum_{j=1}^{M}(v_{i+j}-\mu_v)^2.
+\]
+The mean velocity gives an estimate of the average upstream traffic speed, while the variance indicates how irregular or unstable the traffic stream is.
+
+\subsection{Mesoscopic adaptation layer}
+
+The adaptation layer transforms the observed traffic information into a headway modification for the CAV controller. It contains two parts: a baseline adaptive headway mechanism and a residual reinforcement learning policy.
+
+\paragraph{Baseline adaptive headway.}
+The baseline mechanism computes a rule-based headway scaling factor from the macroscopic traffic information. The update can be written as
+\[
+\alpha_i^{\mathrm{rule}} = \mathrm{sat}(1+\rho_i),
+\]
+with the internal state
+\[
+\rho_i^{+} = \lambda \rho_i + \gamma \psi,
+\]
+and the perception signal
+\[
+\psi = \beta \,\mathrm{sgn}(v_i-\mu_v),
+\qquad
+\beta = \frac{2\sigma_v}{v_{\max}}.
+\]
+This mechanism has a simple interpretation. When upstream traffic becomes more variable, the controller increases the effective headway in order to react more cautiously. When traffic is smoother, the headway can be reduced. The filtering through $\rho_i$ also avoids abrupt parameter changes.
+
+\paragraph{Residual RL policy.}
+On top of the baseline adaptation, a residual policy computes a correction term:
+\[
+\chi_i =
+\begin{bmatrix}
+x_i^{\mathrm{macro}} & x_i^{\mathrm{micro}} & \alpha_{i-1}
+\end{bmatrix}^{\top},
+\qquad
+\Delta \alpha_i = \pi_{\theta}(\chi_i).
+\]
+The role of this block is to refine the rule-based decision without changing the overall structure of the controller. In other words, the adaptive law remains physically interpretable, while the learning block adds flexibility when the traffic situation becomes more complex.
+
+\subsection{Control layer}
+
+The control layer converts the adapted headway into a longitudinal acceleration command for the CAV. The final scaling factor is
+\[
+\alpha_i = \mathrm{clip}\!\left(\alpha_i^{\mathrm{rule}} + \Delta \alpha_i\right),
+\]
+and the corresponding time headway becomes
+\[
+T_i = \alpha_i T_0.
+\]
+This adapted headway is then used inside the microscopic CACC/CTH controller:
+\[
+a_i = k_s\left(s_i - d_0 - T_i v_i\right)
+      + k_v \Delta v_i
+      + k_a a_{i-1}
+      + k_{v0}(v_{\mathrm{des}} - v_i).
+\]
+
+This equation shows clearly how the architecture is organized. The lower-level controller remains a classical feedback law based on spacing, relative speed, leader acceleration, and desired speed regulation. The upper layers do not replace this controller; they only adapt the time-headway parameter $T_i$ used inside it.
+

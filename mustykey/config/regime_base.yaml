@@ -1,0 +1,100 @@
+# Regime-based scenario configuration
+# This config is optimized for generating diverse datasets
+
+# Simulation parameters
+N: 20                    # Number of vehicles
+L: 300.0                 # Ring length (meters) - will be adjusted per regime
+dt: 0.1                  # Timestep (seconds)
+T: 100.0                 # Total simulation time (seconds)
+seed: 42                 # Random seed (will be overridden by generator)
+
+# Initial conditions
+initial_speed: 15.0      # Nominal initial speed (m/s)
+human_ratio: 1.0         # Start with 100% human (0.0 = all CAV, 1.0 = all human)
+
+# Vehicle dynamics - IDM (Human)
+idm_params:
+  s0: 2.0                # Minimum spacing (m)
+  T: 1.5                 # Safe time headway (s)
+  a: 1.0                 # Max acceleration (m/s²)
+  b: 2.0                 # Comfortable braking (m/s²)
+  v0: 25.0               # Desired speed (m/s)
+  delta: 4               # Acceleration exponent
+
+# Stochastic IDM parameters (for dual human model)
+stochastic_idm_params:
+  s0: 2.0
+  T: 1.5
+  a: 1.0
+  b: 2.0
+  v0: 25.0
+  delta: 4
+
+# Unstable IDM parameters (wave generators)
+unstable_idm_params:
+  s0: 2.0
+  T: 1.8               # Larger headway → more unstable
+  a: 0.8               # Slower acceleration
+  b: 1.5               # Weaker braking
+  v0: 25.0
+  delta: 4
+
+# Noise parameters
+noise_Q: 0.0             # Base noise (m²/s³)
+noise_Q_stochastic: 0.5  # Noise for stochastic humans
+noise_Q_unstable: 1.0    # Noise for unstable humans
+unstable_human_ratio: 0.3  # Fraction of humans that are unstable
+
+# Vehicle dynamics - ACC (CAV)
+acc_params:
+  ks: 0.5                # Spacing gain
+  kv: 0.7                # Velocity gain
+  kv0: 0.3               # Free-flow gain (CRITICAL for circulation)
+  v_des: 25.0            # Desired speed (m/s)
+  v_max: 30.0            # Maximum speed (m/s)
+  b_max: 3.0             # Maximum braking (m/s²)
+
+# CTH spacing policy
+cth_params:
+  d0: 2.0                # Minimum bumper distance (m)
+  hc: 1.2                # Time headway (s)
+
+# Macrofield parameters (SPH)
+dx: 1.0                  # Spatial resolution (m)
+kernel_h: 5.0            # SPH kernel width (m) - CRITICAL for smoothing
+sph_h: 5.0               # Alias for kernel_h
+
+# ARZ PDE solver parameters (macro teacher)
+macro_teacher: arz       # 'arz' or 'none'
+save_macro_dataset: true # Save teacher dataset for GNN training
+macro_predictor: pde     # 'pde' or 'surrogate'
+
+arz_params:
+  v_max: 30.0            # Free-flow speed (m/s)
+  rho_jam: 0.2           # Jam density (veh/m) - CRITICAL for regime scaling
+  gamma: 1.0             # Relaxation parameter
+
+# Physical constants
+rho_jam: 0.2             # Jam density (veh/m) - used for regime calculation
+v_max: 30.0              # Maximum velocity (m/s)
+
+# Output
+output_path: output/regime_run  # Will be overridden by generator
+scenario: default        # Scenario type
+
+# Perturbation (will be set by generator)
+perturbation:
+  enabled: false
+  type: none
+
+# Zone parameters (for transition scenarios)
+arrival_zone:
+  center_x: 225.0
+  width: 30.0
+
+departure_zone:
+  center_x: 75.0
+  width: 30.0
+
+swap_interval: 20.0      # Time between swaps (s)
+swap_ratio: 0.25         # Fraction to swap per event

@@ -1,0 +1,75 @@
+# =============================================================================
+# Stability Demonstration: CAV Penetration Effect on Stop-and-Go Waves
+# =============================================================================
+# Goal: Show that increasing CAV penetration reduces traffic instability
+# - 0% CAV: Clear stop-and-go waves
+# - 100% CAV: Stable smooth flow
+# =============================================================================
+
+# Global parameters
+N: 22                    # Sugiyama density for instability
+L: 300.0                 # Ring length
+dt: 0.1                  # Timestep
+T: 120.0                 # Total time (5 segments × 20s + 20s grace)
+initial_speed: 10.0      # Start below equilibrium to trigger waves
+seed: 42
+output_path: "output/transition_stability_demo"
+
+# Swap parameters
+swap_interval: 20.0      # Swap every 20 seconds
+swap_ratio: 0.25         # Convert 25% each time (reaches 100% in 4 swaps)
+
+# Visual zones (cosmetic only)
+arrival_zone:
+  center_x: 225.0
+  width: 30.0
+
+departure_zone:
+  center_x: 75.0
+  width: 30.0
+
+# =============================================================================
+# HUMAN IDM: MARGINALLY UNSTABLE (produces stop-and-go but recovers)
+# =============================================================================
+# Key: Low acceleration (a=0.73) creates slow recovery → waves
+# Based on Treiber: "a < 1.0 m/s² enhances wave formation"
+idm_params:
+  s0: 2.0                # Minimum gap
+  T: 1.5                 # Time headway (realistic)
+  a: 0.73                # LOW acceleration → slow recovery → waves
+  b: 1.5                 # Moderate braking
+  v0: 15.0               # Desired speed
+  delta: 4
+
+noise_Q: 0.3             # Moderate noise triggers perturbations
+
+# =============================================================================
+# CAV ACC+CTH: STRING-STABLE (dampens waves)
+# =============================================================================
+# High gains for strong damping
+acc_params:
+  ks: 0.8                # HIGH spacing gain → strong correction
+  kv: 1.0                # HIGH velocity gain → strong damping
+  kv0: 0.4               # Free-flow gain
+  v_des: 15.0            # Match IDM desired speed
+  b_max: 3.0
+  v_max: 20.0
+
+cth_params:
+  d0: 2.0
+  hc: 1.2                # Slightly tighter than IDM T
+
+# Macrofield
+dx: 1.0
+sph_h: 5.0
+
+# Vehicle properties
+vehicle_length: 5.0
+
+# Leader perturbation (optional - triggers initial wave)
+perturbation:
+  enabled: true
+  vehicle_id: 0          # Perturb leader
+  t_start: 5.0           # At t=5s
+  duration: 2.0          # For 2 seconds
+  delta_v: -3.0          # Brake by 3 m/s

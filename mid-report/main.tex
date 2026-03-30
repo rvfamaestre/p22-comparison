@@ -1,0 +1,96 @@
+\documentclass[12pt, a4paper]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{graphicx}
+\usepackage{geometry}
+\usepackage{hyperref}
+\usepackage{float}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{fancyhdr}
+\usepackage{siunitx}
+
+\bibliographystyle{ieeetr}
+
+\geometry{
+	a4paper,
+	total={170mm,257mm},
+	left=20mm,
+	top=20mm,
+}
+
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\textit{Adaptive Hybrid Control Error for Vehicle Platoons via Reinforcement Learning}}
+\fancyhead[R]{27/03/2026}
+\fancyfoot[C]{\thepage}
+\setlength{\headheight}{15pt}
+
+\hypersetup{
+	colorlinks=true,
+	linkcolor=blue,
+	citecolor=black,
+	filecolor=magenta,
+	urlcolor=cyan,
+	pdftitle={\textit{Adaptive Hybrid Control Error for Vehicle Platoons via Reinforcement Learning}},
+	pdfpagemode=FullScreen,
+}
+
+\title{
+	\vspace{2cm}
+	\includegraphics[width=0.3\textwidth]{images/logo.png}
+	\vspace{1cm}
+	
+	\textbf{Adaptive Hybrid Control Error for Vehicle Platoons via Reinforcement Learning} \\
+	\vspace{0.4cm}
+	1st Report \\
+	\vspace{1cm}
+}
+
+\author{
+	\textbf{Authors:}\\
+	Mustafa Kamal\\
+	Rafael Maestre López\\
+	Charelle Khoury\\[1.5cm]
+	%\textbf{Institution:}\\
+	%[Institution Name]\\[0.8cm]
+	\textbf{Course:}\\
+	Project S8 - P22\\[0.8cm]
+	%\textbf{Course Year:}\\
+	%2026
+}
+
+\date{}
+
+\begin{document}
+	
+	\maketitle
+	\thispagestyle{empty} % no page number on title page
+	
+	% --- Table of contents (Roman numerals) ---
+	\newpage
+	\pagenumbering{roman}
+	\setcounter{page}{1}
+	
+	\tableofcontents
+	\newpage
+	
+	% --- Main content (Arabic, starting at 1) ---
+	\pagenumbering{arabic}
+	\setcounter{page}{1}
+	
+	\input{sections/introduction}
+	
+	\input{sections/traffic_environment}
+	
+	\input{sections/reinforcement_learning}
+	
+	\input{sections/system_architecture}
+	
+	\input{sections/current_progress_and_future_work}
+	
+	\bibliography{references}
+	
+\end{document}

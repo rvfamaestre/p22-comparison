@@ -1,0 +1,26 @@
+base_seed: 42
+generation_date: '2025-12-29 21:52:09'
+num_runs_per_scenario: 30
+results:
+  S0:
+    failed_count: 0
+    success: 30
+  S100:
+    failed_count: 0
+    success: 30
+  S25:
+    failed_count: 0
+    success: 30
+  S50:
+    failed_count: 0
+    success: 30
+  S75:
+    failed_count: 0
+    success: 30
+scenarios:
+- S0
+- S25
+- S50
+- S75
+- S100
+total_time_minutes: 97.4805210351944

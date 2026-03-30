@@ -1,0 +1,60 @@
+\subsubsection{Connected Autonomous Vehicle (CAV) Model}\label{CAV}
+
+For connected autonomous vehicles, we adopt the point-mass longitudinal dynamics described in \cite{Mirabilio.2023}. The motion of vehicle $i$ is governed by
+
+\begin{equation}
+\dot{x}_i = v_i,
+\qquad
+\dot{v}_i = u_i,
+\end{equation}
+In a car-following configuration, the spacing and relative velocity are defined as
+\begin{equation}
+s_i = x_{i-1} - x_i - L,
+\qquad
+\Delta v_i = v_i - v_{i-1}.
+\end{equation}
+
+CAVs implement an Adaptive Cruise Control (ACC) strategy based on a Constant Time Headway (CTH) policy. The desired spacing is given by
+\begin{equation}
+s_i^{\mathrm{ref}} = s_0 + T_C v_i,
+\end{equation}
+
+where $s_0$ denotes the standstill spacing and $T_C > 0$ is the selected time headway.
+
+Defining the spacing error
+\begin{equation}
+e_{p,i} = s_i - s_i^{\mathrm{ref}},
+\end{equation}
+
+its dynamics follow from
+\begin{equation}
+\dot{s}_i = -\Delta v_i,
+\qquad
+\dot{s}_i^{\mathrm{ref}} = T_C \dot{v}_i = T_C u_i,
+\end{equation}
+
+which yields
+\begin{equation}
+\dot{e}_{p,i} = -\Delta v_i - T_C u_i.
+\end{equation}
+
+A linear ACC controller that regulates both spacing and velocity errors can therefore be written as
+\begin{equation}
+u_i =
+k_s ( s_i - s_i^{\mathrm{ref}} )
+-
+k_v \Delta v_i,
+\end{equation}
+
+where $k_s > 0$ and $k_v > 0$ denote the spacing and velocity feedback gains, respectively. This control law constitutes a linear realization of the CTH policy and is consistent with the mesoscopic ACC formulation proposed in \cite{Mirabilio.2023}.
+
+An important property of the CTH-based ACC strategy is its capability to guarantee weak string stability using only local measurements \cite{Swaroop.2001}. In the frequency domain, the disturbance propagation transfer function satisfies
+\begin{equation}
+\| H(j\omega) \|_{\infty} \le 1,
+\end{equation}
+ensuring that spacing disturbances are not amplified upstream along a vehicle string.
+Moreover, robustness with respect to sensing and actuation delays imposes a constraint on the admissible implementation lag. In particular, the total delay must satisfy
+\begin{equation}
+T_C \le \frac{h_w}{2},
+\end{equation}
+indicating that allowable delay is directly limited by the chosen time headway \cite{Swaroop.2001}.

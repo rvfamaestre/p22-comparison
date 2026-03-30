@@ -1,0 +1,48 @@
+\subsection{Mixed Traffic Model}
+
+We consider a mixed traffic system composed of $N$ vehicles circulating on a single-lane ring road of length $L_{\mathrm{ring}}$. The vehicle indices satisfy periodic boundary conditions such that vehicle $1$ follows vehicle $N$.
+
+Let $x_i(t)$ and $v_i(t)$ denote the position and velocity of vehicle $i \in \{1,\dots,N\}$. The ring-road constraint is given by
+\begin{equation}
+x_{i-1}(t) > x_i(t), 
+\qquad
+x_0(t) := x_N(t) + L_{\mathrm{ring}}.
+\end{equation}
+
+The spacing is defined as
+\begin{equation}
+s_i = x_{i-1} - x_i - L,
+\end{equation}
+where periodicity applies for $i=1$.
+
+Let $\mathcal{H}$ denote the set of HDVs and $\mathcal{C}$ the set of CAVs, with penetration rate
+\begin{equation}
+P = \frac{|\mathcal{C}|}{N}.
+\end{equation}
+
+\vspace{0.5cm}
+
+Human-driven vehicles are modeled according to the stochastic Intelligent Driver Model introduced in Subsection~\ref{SIDM}.
+
+HDVs do not utilize acceleration information of the preceding vehicle, reflecting the absence of communication capabilities. Furthermore, HDVs are characterized by a larger effective reaction time $T_H$, representing the delay associated with human perception and actuation. Consequently, their response to traffic perturbations is slower and more susceptible to amplification of stochastic fluctuations.
+
+\vspace{0.5cm}
+
+Connected autonomous vehicles are modeled according to the ACC framework introduced previously in \ref{CAV}. In contrast to HDVs, CAVs are assumed to exhibit higher sensitivity coefficients and a shorter desired time headway $T_C$, reflecting their faster sensing \cite{Gong.2024}. The condition $T_C < T_H$ therefore captures the higher responsiveness of CAVs compared to HDVs.
+
+When a CAV follows an HDV, communication-based acceleration information is unavailable. In this degraded configuration, the feedforward gain is set to $k_a = 0$, and the effective time headway is increased to $T_C^{\mathrm{deg}} > T_C$, representing reduced cooperative capability. This modeling choice captures the performance degradation of CAVs in mixed traffic reported in \cite{Gong.2024} and \cite{Cen.2025}.
+
+\vspace{0.5cm}
+
+The closed-loop mixed system is therefore
+\begin{equation}
+\dot v_i =
+\begin{cases}
+f_{\mathrm{IDM}}(s_i, v_i, v_{i-1}) + \xi_i(t),
+& i \in \mathcal{H}, \\[6pt]
+k_s ( s_i - s_i^{\mathrm{ref}} )
+- k_v \Delta v_i
++ k_a a_{i-1},
+& i \in \mathcal{C}.
+\end{cases}
+\end{equation}

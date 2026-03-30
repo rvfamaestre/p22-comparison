@@ -1,0 +1,49 @@
+# -----------------------------
+# Global simulation parameters
+# -----------------------------
+N: 20                    # total number of vehicles
+L: 300.0                 # ring road length in meters
+dt: 0.05                 # simulation time step
+T: 60.0                  # total simulation time (seconds)
+initial_speed: 15.0      # initial velocity for all vehicles (m/s)
+
+seed: 42                 # random seed for reproducibility
+
+# Ratio of human-driven vehicles
+human_ratio: 0.8         # IDM human vehicles, the rest are CAVs
+
+# Output path for logging
+output_path: "output/run1"
+
+# =============================================================
+# HUMAN VEHICLE MODEL (IDM)
+# =============================================================
+idm_params:
+  s0: 2.0
+  T: 1.2
+  a: 1.2
+  b: 1.5
+  v0: 33.0
+  delta: 4
+
+# Noise variance for Euler–Maruyama
+noise_Q: 0.2
+
+# =============================================================
+# CAV VEHICLE MODEL (ACC + CTH spacing policy)
+# =============================================================
+acc_params:
+  ks: 0.2
+  kv: 0.6
+  b_max: 3.0
+  v_max: 33.0
+
+cth_params:
+  d0: 5.0
+  hc: 1.0
+
+# =============================================================
+# MACROFIELD (SPH) GENERATOR
+# =============================================================
+dx: 1.0
+kernel_h: 3.0

@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls -la rafa/*.py)",
+      "Bash(ls -la mustykey/*.py)"
+    ]
+  }
+}
