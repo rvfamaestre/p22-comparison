@@ -10,12 +10,12 @@ The RL problem is formulated as a Markov Decision Process (MDP),
 \]
 where $\mathcal{S}$ is the state space, $\mathcal{A}$ is the action space, $P$ represents the traffic dynamics, and $r$ is the reward.
 
-At each time step, the agent observes the traffic state, selects an action, applies it to the controller, and receives a reward. In our framework, the state of each CAV $i$ is defined as
+At each time step, the agent observes the traffic state, selects an action, applies it to the controller, and receives a reward. In the current implementation, the state of each CAV $i$ is defined as
 \[
 x_i =
-(\mu_{v,i}, \sigma_{v,i}^2, v_i, s_i, \Delta v_i, a_{\ell(i)}, \alpha_i^{prev}),
+(\mu_{v,i}, \sigma_{v,i}^2, \delta^{\mathrm{macro}}_{v,i}, v_i, s_i, \Delta v_i, a_{\ell(i)}, \alpha_i^{prev}),
 \]
-where $\mu_{v,i}$ and $\sigma_{v,i}^2$ are the upstream mean velocity and velocity variance, $v_i$ is the vehicle speed, $s_i$ is the spacing to the leader, $\Delta v_i$ is the relative speed, $a_{\ell(i)}$ is the leader acceleration, and $\alpha_i^{prev}$ is the previously applied headway scaling factor.
+where $\mu_{v,i}$ and $\sigma_{v,i}^2$ are the upstream mean velocity and velocity variance, $\delta^{\mathrm{macro}}_{v,i}=v_i-\mu_{v,i}$ is the speed mismatch with the local upstream flow, $v_i$ is the ego speed, $s_i$ is the spacing to the leader, $\Delta v_i$ is the relative speed, $a_{\ell(i)}$ is the leader acceleration, and $\alpha_i^{prev}$ is the previously applied headway scaling factor.
 
 This state combines \emph{microscopic} information, such as spacing and relative velocity, with \emph{mesoscopic} information, such as the average speed and speed variance of upstream traffic. This is important because local measurements alone may not be enough to detect the development of traffic waves.
 

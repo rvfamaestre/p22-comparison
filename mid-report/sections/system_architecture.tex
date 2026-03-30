@@ -81,12 +81,12 @@ On top of the baseline adaptation, a residual policy computes a correction term:
 \[
 \chi_i =
 \begin{bmatrix}
-x_i^{\mathrm{macro}} & x_i^{\mathrm{micro}} & \alpha_{i-1}
+    \mu_v & \sigma_v^2 & (v_i-\mu_v) & v_i & s_i & \Delta v_i & a_{i-1} & \alpha_i^{prev}
 \end{bmatrix}^{\top},
 \qquad
 \Delta \alpha_i = \pi_{\theta}(\chi_i).
 \]
-The role of this block is to refine the rule-based decision without changing the overall structure of the controller. In other words, the adaptive law remains physically interpretable, while the learning block adds flexibility when the traffic situation becomes more complex.
+The role of this block is to refine the rule-based decision without changing the overall structure of the controller. In other words, the adaptive law remains physically interpretable, while the learning block adds flexibility when the traffic situation becomes more complex. The resulting policy input therefore combines mesoscopic information, local car-following variables, and the previously applied headway state in a single 8-dimensional vector.
 
 \subsection{Control layer}
 

@@ -1,0 +1,20 @@
+{
+    "enabled": true,
+    "metric": "speed_var_global",
+    "mode": "min",
+    "patience": 199,
+    "min_delta": 0.001,
+    "start_step": 6,
+    "min_checks": 4,
+    "ema_alpha": 0.3,
+    "restore_best": true,
+    "num_checks": 25,
+    "eligible_checks": 19,
+    "checks_since_improvement": 15,
+    "best_metric": 1.6701121820065241,
+    "best_raw_metric": 1.496726393699646,
+    "best_step": 9,
+    "last_metric": 1.949876510515051,
+    "last_raw_metric": 1.8774631023406982,
+    "stop_step": null
+}

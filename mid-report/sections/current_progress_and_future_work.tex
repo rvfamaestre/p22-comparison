@@ -1,135 +1,148 @@
-\section{Current Progress and Future Work}
+\section{Current Progress, Results and Perspectives}
 
-Two parallel development branches have been pursued in this project. Each branch implements the same core framework described in the previous sections, namely a residual RL policy on top of a mesoscopic adaptive headway rule, but the two branches differ in their engineering choices and experimental focus. In this section, we summarize the current state of each branch, compare the experimental results obtained so far, and outline the remaining work.
+This section reports the state of the consolidated implementation after the first report draft. From this point onward, the project is presented as a single main codebase. The experiments below correspond to the current pipeline only: the same residual RL controller, the same mesoscopic adaptation mechanism, and the same evaluation scripts used to produce the latest local results.
 
-\subsection{Branch overview}
+\subsection{What was added after the first draft}
 
-\paragraph{Branch~A (sequential CPU implementation).}
-This branch follows a lightweight, single-episode training loop running entirely on CPU. The RL module is embedded inside the mesoscopic adaptation layer: the rule-based adapter first computes a headway scaling factor~$\alpha^{\mathrm{rule}}$, and the RL policy then outputs a bounded residual correction $\Delta\alpha \in [-0.1, 0.1]$. The observation is an 8-dimensional vector that captures both local car-following variables and upstream mesoscopic statistics:
-\[
-x_i = \bigl(\mu_v,\;\sigma_v^2,\;\delta_v,\;v_i,\;s_i,\;\Delta v_i,\;a_{\ell(i)},\;\alpha_i^{\mathrm{prev}}\bigr).
-\]
-Training collects one full episode (1500~time steps) before each policy update. Both PPO and SAC have been implemented and compared over 800~training episodes.
+Several substantial changes were applied after the initial report version and before the final experiments presented here:
+\begin{itemize}
+    \item the missing evaluation metrics were integrated into the main pipeline, in particular the late-run objective $\texttt{mean\_speed\_last100}$, string-stability validity flags, collision-clamp counts, and safety-constraint summaries;
+    \item a checkpoint-aware early-stopping monitor was introduced, together with best-model restoration and explicit summaries of the best observed training point;
+    \item the training loop was rewritten into a vectorized PyTorch backend able to batch several environments at once and run on GPU while keeping the same 8-feature observation format used by the main controller;
+    \item the report-generation scripts were hardened so that evaluation outputs now include the effective configuration and the comparison report no longer breaks when a metric is unavailable or invalid.
+\end{itemize}
 
-\paragraph{Branch~B (vectorized GPU implementation).}
-This branch rewrites the entire ring-road simulator as a set of parallel PyTorch tensor operations, eliminating all Python loops over vehicles. Multiple independent environments (16 to 128) are batched on the GPU, so that a single \texttt{step()} call advances all simulations simultaneously. The RL layer is decoupled from the mesoscopic module and placed in its own \texttt{agents} package. The observation space is extended to 15~dimensions by adding global context features such as fleet mean speed, CAV penetration rate, and neighbourhood statistics. GPU-native PPO and SAC trainers have been implemented, together with a formal evaluation protocol that sweeps over four control modes (baseline, adaptive, PPO, SAC), four human-driver ratios, two CAV layout strategies (ordered vs.\ shuffled), and optional perturbation injection.
+These updates were not only implementation cleanups. After they were applied, additional training and evaluation runs were launched again, so the results reported below correspond to the updated pipeline rather than to the earlier draft state.
 
-\subsection{Experimental results}
+\subsection{Experimental protocol used for the updated results}
 
-Both branches evaluate three control modes, no~RL (baseline adaptive headway), PPO, and SAC, across several human-driver penetration rates on the same 22-vehicle, 300\,m ring road. The key metrics are mean fleet speed, speed variance, minimum inter-vehicle gap, collision count, and ride comfort (RMS acceleration and jerk).
+The updated experiments were run on the CentraleSup\'elec DCE infrastructure with a CUDA-enabled PyTorch environment and an NVIDIA RTX~2080~Ti GPU. The GPU acceleration was used for training only; the evaluation runs still use the standard simulation path so that the learned models are tested in the same operational setting as the controller used at inference time.
 
-\subsubsection{Branch~A results (CPU, 800 episodes)}
+The final experimental campaign contains:
+\begin{itemize}
+    \item two training runs: one PPO run and one SAC run, both at 50\,\% human-driver ratio;
+    \item 200 physical training episodes per algorithm;
+    \item 8 parallel environments during training, which means that each 200-episode run is executed as 25 vectorized training batches;
+    \item nine evaluation runs in total: No~RL, PPO, and SAC, each tested at 25\,\%, 50\,\%, and 75\,\% human-driver ratios.
+\end{itemize}
 
-Table~\ref{tab:branch_a_results} summarizes the evaluation results for Branch~A. Each row corresponds to one control mode evaluated at a given human-driver ratio. The most critical scenario is the 75\,\% human-driver case, where the traffic is dominated by stochastic HDV behavior.
+The evaluation focuses on the metrics that are the most informative for this project: late-run mean speed, late-run speed variance, comfort, minimum gap, collision warnings, collision clamps, and the validity of the string-stability experiment.
+
+\subsection{Training summary}
+
+Table~\ref{tab:training_summary_updated} summarizes the two updated training runs. The important point is that the best observed training point appears early for both algorithms, whereas the final checkpoint is not the best one in terms of variance minimization.
 
 \begin{table}[!htbp]
 \centering
-\caption{Branch~A evaluation metrics across human-driver ratios (800~episodes, CPU training).}
-\label{tab:branch_a_results}
+\caption{Training summary for the updated GPU-enabled pipeline.}
+\label{tab:training_summary_updated}
 \small
-\begin{tabular}{llcccccc}
+\begin{tabular}{lccccc}
 \hline
-HR & Mode & Mean speed & Speed var. & RMS acc. & RMS jerk & Min gap & Collisions \\
- & & (m/s) & (m$^2$/s$^2$) & (m/s$^2$) & (m/s$^3$) & (m) & \\
+Method & Physical episodes & Batches & Best batch & Best variance & Final variance \\
+\hline
+PPO & 200 & 25 & 9 & 1.471 & 1.877 \\
+SAC & 200 & 25 & 3 & 1.530 & 1.762 \\
+\hline
+\end{tabular}
+\end{table}
+
+\begin{figure}[!htbp]
+    \centering
+    \includegraphics[width=\textwidth]{images/results/training_diagnostics.png}
+    \caption{Training diagnostics from the final PPO and SAC runs. The horizontal axis counts vectorized batches, not single episodes; with 8 parallel environments, 25 batches correspond to 200 physical episodes.}
+    \label{fig:training_diagnostics}
+\end{figure}
+
+Two remarks are worth emphasizing. First, PPO took noticeably longer than SAC in wall-clock time. This is expected in the current configuration because PPO performs many more optimizer updates per collected rollout batch, whereas SAC uses a smaller off-policy update loop. Second, the early-stopping monitor did not actually stop either run because the patience remained too large for a 25-batch training campaign. This is informative in itself: the monitoring logic is now present, but its configuration still needs to be tightened if it is to play a meaningful role.
+
+\subsection{Evaluation results}
+
+Table~\ref{tab:eval_results_updated} reports the final comparison across the three human-driver ratios. The most informative quantities are the late-run objective $\texttt{mean\_speed\_last100}$ and the late-run variance $\texttt{speed\_var\_last100}$, because they focus on the stabilized part of the trajectory rather than averaging the whole transient.
+
+\begin{table}[!htbp]
+\centering
+\caption{Updated evaluation results for the consolidated pipeline.}
+\label{tab:eval_results_updated}
+\small
+\resizebox{\textwidth}{!}{
+\begin{tabular}{llccccccc}
+\hline
+HR & Method & Mean speed$_{100}$ & Var$_{100}$ & RMS acc. & RMS jerk & Min gap & Warnings & Clamps \\
+ &  & (m/s) & (m$^2$/s$^2$) & (m/s$^2$) & (m/s$^3$) & (m) &  &  \\
 \hline
 \multirow{3}{*}{25\,\%}
- & No RL  & 4.868 & 0.630 & 0.578 & 8.682 & 0.510 & 0 \\
- & PPO    & \textbf{5.081} & 0.780 & \textbf{0.441} & \textbf{6.302} & 0.510 & 0 \\
- & SAC    & 4.822 & \textbf{0.630} & 0.746 & 11.363 & 0.510 & 0 \\
+ & No RL & \textbf{5.175} & 0.0098 & \textbf{0.578} & \textbf{8.682} & \textbf{0.510} & \textbf{0} & 3 \\
+ & PPO   & 4.974 & 0.0185 & 0.679 & 10.334 & 0.510 & \textbf{0} & 3 \\
+ & SAC   & 5.164 & \textbf{0.0063} & 0.635 & 9.632 & 0.510 & \textbf{0} & 3 \\
 \hline
 \multirow{3}{*}{50\,\%}
- & No RL  & 3.745 & 1.939 & \textbf{0.437} & \textbf{5.169} & 0.510 & 0 \\
- & PPO    & 3.727 & \textbf{1.819} & 0.439 & 5.257 & 0.510 & 0 \\
- & SAC    & \textbf{3.755} & 1.916 & 0.477 & 6.011 & 0.510 & 0 \\
+ & No RL & 4.716 & 1.142 & \textbf{0.437} & \textbf{5.169} & \textbf{0.510} & \textbf{0} & 3 \\
+ & PPO   & 4.717 & 0.993 & 0.451 & 5.530 & \textbf{0.510} & \textbf{0} & 3 \\
+ & SAC   & \textbf{4.719} & \textbf{0.968} & 0.454 & 5.577 & \textbf{0.510} & \textbf{0} & 3 \\
 \hline
 \multirow{3}{*}{75\,\%}
- & No RL  & 2.982 & 3.793 & 0.420 & \textbf{3.451} & 0.307 & 42 \\
- & PPO    & \textbf{2.992} & \textbf{3.608} & \textbf{0.419} & 3.520 & \textbf{0.489} & \textbf{1} \\
- & SAC    & 2.977 & 3.829 & 0.426 & 3.591 & 0.300 & 42 \\
+ & No RL & \textbf{2.887} & 3.718 & \textbf{0.420} & \textbf{3.451} & 0.307 & 42 & 4 \\
+ & PPO   & 2.880 & \textbf{3.666} & 0.421 & 3.532 & \textbf{0.345} & 46 & \textbf{3} \\
+ & SAC   & 2.866 & 3.777 & 0.424 & 3.531 & 0.300 & \textbf{39} & 5 \\
 \hline
 \end{tabular}
+}
 \end{table}
 
-At 25\,\% human drivers, all three methods perform well and no collisions occur. PPO achieves the highest mean speed (5.08\,m/s) and the best comfort metrics, while SAC matches the baseline variance. At 50\,\%, the three modes are comparable, with PPO slightly reducing speed variance.
+\begin{figure}[!htbp]
+    \centering
+    \includegraphics[width=\textwidth]{images/results/evaluation_dashboard.png}
+    \caption{Self-contained evaluation dashboard stored locally in the report folder. The four panels show the main compromise between throughput, smoothness, collision warnings, and collision clamps.}
+    \label{fig:evaluation_dashboard}
+\end{figure}
 
-The most significant result appears at 75\,\% human drivers. The baseline and SAC both produce 42~collisions, whereas PPO reduces this to a single collision, a 98\,\% improvement. PPO also achieves the best speed variance (3.608 vs.\ 3.793) and the largest minimum gap (0.489\,m vs.\ 0.307\,m). This suggests that the on-policy nature of PPO is better suited to the high-stochasticity regime of this scenario, where HDV behavior dominates.
+\begin{figure}[!htbp]
+    \centering
+    \includegraphics[width=0.82\textwidth]{images/results/performance_tradeoff_map.png}
+    \caption{Trade-off map using late-run mean speed and late-run speed variance. The 50\,\% human-driver regime is the clearest region where learning improves the throughput--smoothness compromise.}
+    \label{fig:tradeoff_map}
+\end{figure}
 
-\subsubsection{Branch~B results (GPU, PPO evaluation)}
+\subsection{Reasoned interpretation}
 
-Branch~B evaluates five training checkpoints across the same human-driver ratios. Additionally, it introduces a perturbation-injection protocol and a formal string-stability metric (the amplification ratio: the ratio of the maximum downstream speed perturbation to the upstream perturbation). Table~\ref{tab:branch_b_results} summarizes the results for the final PPO checkpoint compared with the adaptive and baseline modes.
+Table~\ref{tab:qualitative_synthesis} summarizes the practical reading of the results. It is intentionally qualitative: the purpose is not to crown a universal winner, but to identify where each method is actually useful and where the current limitations remain dominant.
 
 \begin{table}[!htbp]
 \centering
-\caption{Branch~B evaluation metrics (GPU PPO final checkpoint, overall summary).}
-\label{tab:branch_b_results}
+\caption{Qualitative synthesis of the current results.}
+\label{tab:qualitative_synthesis}
 \small
-\begin{tabular}{lcccccc}
+\begin{tabular}{p{1.9cm}p{3.3cm}p{7.2cm}}
 \hline
-Mode & HR & Mean speed & Speed var. & Min gap & Safety rate & Amplification \\
- & & (m/s) & (m$^2$/s$^2$) & (m) & (\%) & ratio \\
+Regime & Current best reading & Main reason \\
 \hline
-\multirow{3}{*}{Adaptive}
- & 0\,\%  & 4.829 & 0.321 & 7.32 & 100 & 0.525 \\
- & 25\,\% & 4.975 & 0.011 & --- & 100 & --- \\
- & 50\,\% & 4.587 & 0.232 & --- & --- & --- \\
-\hline
-\multirow{3}{*}{Baseline}
- & 0\,\%  & 5.019 & 0.040 & 7.41 & 100 & 0.368 \\
- & 25\,\% & 4.975 & 0.011 & --- & 100 & --- \\
- & 50\,\% & 4.330 & 1.229 & --- & --- & --- \\
-\hline
-\multirow{3}{*}{RL (PPO)}
- & 0\,\%  & \textbf{7.081} & 0.094 & 6.91 & 100 & 0.744 \\
- & 25\,\% & \textbf{6.865} & 0.138 & --- & --- & --- \\
- & 50\,\% & 4.499 & 1.145 & --- & --- & --- \\
+25\,\% humans & No RL remains the strongest overall baseline & The traffic is already smooth; learning does not bring a meaningful throughput gain, and PPO even degrades comfort. SAC lowers variance slightly, but without a safety gain. \\
+50\,\% humans & SAC has the best current compromise, with PPO close behind & This is the only regime where RL clearly improves late-run variance while preserving mean speed. The SAC run reduces late variance by about 15\,\% relative to No~RL. \\
+75\,\% humans & No method is satisfactory yet & The regime remains dominated by safety events. PPO slightly improves variance and clamp count, SAC slightly reduces warning count, but every method still suffers collision clamps. \\
 \hline
 \end{tabular}
 \end{table}
 
-The GPU-trained PPO agent achieves a substantial speed improvement in the low human-driver regime: +46.5\,\% over adaptive at 0\,\% humans and +38.1\,\% at 25\,\% humans. However, this comes at the cost of reduced string stability (amplification ratio 0.744, closer to the instability threshold of~1.0). The checkpoint ranking analysis reveals an inherent speed--safety tradeoff: later checkpoints produce higher speeds but progressively worse safety metrics. The best safety--performance tradeoff is found at an early checkpoint (step~229\,376), which achieves a 50\,\% safety pass rate across all evaluated configurations.
+The main conclusion is that the 50\,\% human-driver regime is the real sweet spot of the current approach. At 25\,\%, the baseline controller is already so stable that learning has little room to help. At 75\,\%, the stochasticity introduced by the human-driven vehicles is strong enough that the learned residual policy still fails to make the system consistently safe. In between these two extremes, however, RL manages to reduce oscillations without sacrificing throughput, which is precisely the behavior the project aims to obtain.
 
-\subsection{Comparison between the two branches}
+Another important point is that all current runs fail the formal safety summary. This is not a bug in the evaluation code. The safety criterion checks both the minimum-gap threshold and the absence of collision clamps, and every run violated at least one of these conditions. The same observation explains why the string-stability amplification ratio is reported as invalid in the latest results: once collision clamps occur, the perturbation experiment is no longer a clean string-stability test.
 
-Although the two branches share the same underlying framework, several design differences lead to complementary strengths and weaknesses.
+\paragraph{A limitation that must be stated explicitly.}
+The current results are based on a single random-seed evaluation campaign. They are therefore valid as matched-condition comparisons, but they are not yet sufficient to claim genuine generalization or to rule out over-training. The fact that both algorithms reached their best training variance early and then drifted away from it is a useful warning sign: longer training is not automatically better, and the next credible step is to evaluate the saved checkpoints on unseen seeds.
 
-\paragraph{Observation space.}
-Branch~A uses 8~dimensions (local state only), while Branch~B uses 15~dimensions (local + global context). The richer observation may help the policy generalize across different penetration rates, but it also increases the number of hyperparameters and makes the learned policy harder to interpret.
+\paragraph{A remark I found particularly interesting.}
+The most interesting pattern in these runs is that the learning signal seems to be genuinely informative only in the intermediate regime. This is a pleasant surprise from a traffic-flow point of view: the controller is not simply ``better everywhere'' or ``worse everywhere''. Instead, it helps most when the traffic is neither too easy nor too chaotic, which is exactly the kind of regime where hybrid control is supposed to matter.
 
-\paragraph{RL--mesoscopic coupling.}
-In Branch~A, the RL policy operates on top of the mesoscopic adapter, which remains active at runtime and provides a stable baseline. In Branch~B, the RL agent is decoupled from the mesoscopic layer. This means that Branch~A always benefits from the rule-based fallback, while Branch~B gives the RL agent more freedom but also more responsibility.
+\subsection{Future perspectives}
 
-\paragraph{Training scale.}
-Branch~A trains from single-episode rollouts on CPU (approximately 8~hours for 800~episodes). Branch~B parallelizes across 16--128~environments per GPU step, enabling over an order of magnitude more transitions per wall-clock second. This allows Branch~B to explore a much larger portion of the state space, which may explain the aggressive speed gains observed at low human-driver ratios.
+The most immediate next steps are now quite clear:
+\begin{itemize}
+    \item evaluate the selected PPO and SAC checkpoints on several unseen random seeds to check whether the observed gains at 50\,\% human drivers persist outside the current run;
+    \item reduce the early-stopping patience to a value that makes sense for a 25-batch vectorized training campaign;
+    \item enforce safety more directly during learning, for example with stronger hard constraints or constrained-RL formulations, because soft penalties alone are not preventing collision clamps in the difficult regimes;
+    \item tune PPO and SAC differently instead of using almost parallel training budgets, since their optimization dynamics are not comparable in wall-clock time;
+    \item extend training beyond a single human-driver ratio, either through curriculum training or mixed-ratio batches, in order to make the policy less specialized to the 50\,\% case.
+\end{itemize}
 
-\paragraph{Safety formalization.}
-Branch~A monitors collisions and gap clamps as logged quantities. Branch~B introduces a formal safety-first checkpoint ranking: checkpoints are first filtered by worst-case collision count, then by minimum gap, and finally by traffic performance. This ensures that no checkpoint is selected purely on speed if it violates safety constraints.
-
-\paragraph{String stability.}
-Branch~A uses a binary validity criterion (no gap clamps during the episode). Branch~B computes a continuous amplification ratio from a controlled perturbation experiment. The continuous metric is more informative for evaluating the degree of string stability across conditions.
-
-\subsection{Discussion}
-
-The results so far show that both PPO and SAC can improve traffic behavior compared to the rule-based adaptive baseline, but their advantages depend on the traffic regime and the evaluation metric.
-
-In the high human-driver regime (75\,\%), Branch~A's PPO achieves a dramatic safety improvement (42 collisions reduced to~1), suggesting that the coupled RL--mesoscopic design and the conservative observation space are well suited when HDV behavior dominates. In the low human-driver regime (0--25\,\%), Branch~B's GPU-trained PPO achieves much higher fleet speeds (+38--46\,\%), likely because the larger observation space and more extensive training allow the policy to exploit the coordinated nature of the all-CAV or mostly-CAV traffic.
-
-An important finding from Branch~B is the speed--safety tradeoff across training checkpoints. As training progresses, the agent learns to achieve higher speeds but at the cost of smaller gaps and higher perturbation amplification. This suggests that future reward designs should include explicit safety constraints rather than relying on soft penalty terms alone.
-
-SAC performs comparably to PPO in moderate traffic conditions (25--50\,\% human drivers) in both branches but struggles at 75\,\% in Branch~A. This may indicate that off-policy learning, while more sample-efficient in theory, is more sensitive to the distribution shift caused by highly stochastic HDV behavior in the single-episode training setting.
-
-\subsection{Future work}
-
-\paragraph{Unified evaluation.}
-The most immediate next step is to evaluate both branches under an identical protocol: the same ring-road configuration, the same human-driver ratios, the same random seeds, and the same perturbation injections. This will allow a fair comparison between the two observation spaces, reward designs, and training scales.
-
-\paragraph{Reward shaping and safety constraints.}
-The speed--safety tradeoff observed in Branch~B motivates the introduction of constrained optimization techniques, such as Lagrangian relaxation or a safety critic, to enforce hard safety bounds during training rather than relying on post-hoc checkpoint filtering.
-
-\paragraph{Merging the best of both branches.}
-A natural synthesis would combine Branch~A's coupled RL--mesoscopic control stack (where the rule-based adapter remains active) with Branch~B's vectorized GPU simulator and richer observation space. This would retain the safety benefits of the layered architecture while enabling large-scale parallel training.
-
-\paragraph{Extended traffic scenarios.}
-The current evaluation is limited to a single ring-road configuration with 22~vehicles. Future experiments should vary the road length, vehicle count, and HDV aggressiveness distributions to assess how well the learned policies generalize beyond the training conditions.
-
-\paragraph{SAC improvements.}
-The poor collision performance of SAC at 75\,\% human drivers deserves further investigation. Possible directions include tuning the entropy temperature schedule, increasing the replay buffer size, or pre-training SAC from a PPO checkpoint (a capability already implemented in Branch~B).
+At the present stage, the project already demonstrates a meaningful result: GPU-accelerated training makes larger experiments practical, and the learned residual controller can improve the throughput--smoothness trade-off in the intermediate mixed-traffic regime. The remaining challenge is no longer whether the idea can work at all, but how to make it robust and safe enough to support stronger scientific claims.
