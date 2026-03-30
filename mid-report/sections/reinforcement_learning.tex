@@ -38,7 +38,7 @@ where $\alpha_i^{rule}(t)$ is the baseline headway scaling provided by the rule-
 
 The reward is designed to stay aligned with the engineering goals of the project rather than with a purely numerical score:
 \[
-r_t = r_{\mathrm{sf}} + r_{\mathrm{sp}} + r_{\mathrm{ef}} + r_{\mathrm{cf}} + r_{\mathrm{ss}} + r_{\sigma^2}.
+r_t = r_{\mathrm{sf}}[t] + r_{\mathrm{sp}}[t] + r_{\mathrm{ef}}[t] + r_{\mathrm{cf}}[t] + r_{\mathrm{ss}}[t] + r_{\sigma^2}[t].
 \]
 
 For the spacing-regulation term, the controller uses the desired gap
