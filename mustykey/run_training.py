@@ -14,6 +14,7 @@ import matplotlib.pyplot as plt
 from tqdm import tqdm
 
 from src.utils.config_manager import ConfigManager
+from src.utils.early_stopping import EarlyStoppingConfig, EarlyStopMonitor
 from src.simulation.scenario_manager import ScenarioManager
 from src.mesoscopic.rl_training import PPOTrainer
 from src.mesoscopic.sac_training import SACTrainer
@@ -27,6 +28,7 @@ METRIC_KEYS = (
     "rms_acc",
     "rms_jerk",
     "mean_speed",
+    "mean_speed_last100",
 )
 
 
@@ -55,6 +57,12 @@ def compute_metrics(df, dt):
     metrics["rms_acc"] = float(np.sqrt(np.mean(a ** 2)))
 
     metrics["mean_speed"] = float(np.mean(v))
+
+    # mean speed over last 100 time steps
+    times = np.sort(df["t"].unique())
+    last100_times = times[-min(100, len(times)):]
+    mask = df["t"].isin(last100_times)
+    metrics["mean_speed_last100"] = float(df.loc[mask, "v"].mean())
 
     # jerk calculation
     jerk_vals = []
@@ -287,12 +295,24 @@ def main():
     metrics_history = {key: [] for key in METRIC_KEYS}
 
     # ---------------------------------------------------------
-    # Early stopping
+    # Early stopping (EarlyStopMonitor with EMA smoothing)
     # ---------------------------------------------------------
-    early_stop_metric = "speed_var_global"
-    early_stop_patience = train_cfg["early_stop_patience"]
-    best_metric = float("inf")
-    no_improve_count = 0
+    es_cfg_dict = train_cfg.get("early_stopping", {})
+    es_config = EarlyStoppingConfig(
+        enabled=es_cfg_dict.get("enabled", True),
+        metric=es_cfg_dict.get("metric", "speed_var_global"),
+        mode=es_cfg_dict.get("mode", "min"),
+        patience=es_cfg_dict.get("patience", train_cfg.get("early_stop_patience", 20)),
+        min_delta=es_cfg_dict.get("min_delta", 0.001),
+        start_step=es_cfg_dict.get("start_step", max(episodes // 4, 1)),
+        min_checks=es_cfg_dict.get("min_checks", 4),
+        ema_alpha=es_cfg_dict.get("ema_alpha", 0.3),
+        restore_best=es_cfg_dict.get("restore_best", True),
+    )
+    es_monitor = EarlyStopMonitor(es_config)
+    print(f"[EarlyStop] metric={es_config.metric}, mode={es_config.mode}, "
+          f"patience={es_config.patience}, ema_alpha={es_config.ema_alpha}, "
+          f"start_step={es_config.start_step}, min_checks={es_config.min_checks}")
 
     # ---------------------------------------------------------
     # Training loop
@@ -341,29 +361,34 @@ def main():
             for k, v_metric in metrics.items():
                 print(f"{k:25s}: {v_metric:.4f}")
 
-            current_metric = metrics[early_stop_metric]
+            current_metric = metrics[es_config.metric]
+            es_result = es_monitor.update(current_metric, step=episode)
 
-            if current_metric < best_metric:
-                best_metric = current_metric
-                no_improve_count = 0
+            if es_result["improved"]:
                 trainer.save_model(best_model_path)
                 trainer.save_model(model_path)
                 print(
-                    f"[EarlyStop] New best {early_stop_metric} = "
-                    f"{best_metric:.4f} -> model saved"
+                    f"[EarlyStop] New best {es_config.metric} = "
+                    f"{es_result['best_raw_metric']:.4f} "
+                    f"(smoothed={es_result['smoothed_metric']:.4f}) "
+                    f"at episode {episode} -> model saved"
                 )
             else:
-                no_improve_count += 1
                 print(
-                    f"[EarlyStop] No improvement in {early_stop_metric} "
-                    f"for {no_improve_count}/{early_stop_patience} episodes"
+                    f"[EarlyStop] No improvement in {es_config.metric} "
+                    f"for {es_result['checks_since_improvement']}/{es_config.patience} "
+                    f"checks (smoothed={es_result['smoothed_metric']:.4f})"
                 )
 
-            if no_improve_count >= early_stop_patience:
+            if es_config.enabled and es_result["should_stop"]:
                 print(
-                    f"[EarlyStop] Stopping early: {early_stop_metric} "
-                    f"did not improve for {early_stop_patience} consecutive episodes"
+                    f"[EarlyStop] Stopping early at episode {episode}: "
+                    f"{es_config.metric} plateaued for {es_config.patience} checks. "
+                    f"Best={es_result['best_raw_metric']:.4f} at episode {es_result['best_step']}"
                 )
+                if es_config.restore_best:
+                    print(f"[EarlyStop] Restoring best model from {best_model_path}")
+                    trainer.load_model(best_model_path)
                 break
 
         # -----------------------------------------------------
@@ -385,6 +410,11 @@ def main():
 
     with open(stats_file, "w") as f:
         json.dump(metrics_history, f, indent=4)
+
+    es_summary_file = os.path.join(model_dir, "early_stopping_summary.json")
+    with open(es_summary_file, "w") as f:
+        json.dump(es_monitor.as_dict(), f, indent=4)
+    print(f"[Training] Early stopping summary saved to {es_summary_file}")
 
     print(f"[Training] Metrics saved to {stats_file}")
 

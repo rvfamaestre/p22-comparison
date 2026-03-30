@@ -1,0 +1,35 @@
+\begin{thebibliography}{1}
+
+\bibitem{Treiber.2000}
+M.~Treiber, A.~Hennecke, and D.~Helbing, ``Congested traffic states in
+  empirical observations and microscopic simulations,'' 2000.
+
+\bibitem{Treiber.2018}
+M.~Treiber and A.~Kesting, ``The intelligent driver model with stochasticity --
+  new insights into traffic flow oscillations,'' {\em Transportation Research
+  Part B: Methodological}, vol.~117, pp.~613--623, 2018.
+
+\bibitem{Mirabilio.2023}
+M.~Mirabilio, A.~Iovine, E.~de~Santis, M.~D. {Di Benedetto}, and G.~Pola, ``A
+  mesoscopic human-inspired adaptive cruise control for eco-driving,'' {\em
+  IEEE Transactions on Intelligent Transportation Systems}, vol.~24, no.~9,
+  pp.~9571--9583, 2023.
+
+\bibitem{Swaroop.2001}
+D.~Swaroop and K.~R. Rajagopal, ``A review of constant time headway policy for
+  automatic vehicle following,'' in {\em ITSC 2001. 2001 IEEE Intelligent
+  Transportation Systems. Proceedings (Cat. No.01TH8585)}, pp.~65--69, IEEE,
+  2001.
+
+\bibitem{Gong.2024}
+Y.~Gong and W.-X. Zhu, ``Modeling and robust h $\infty$ control synthesis of
+  the cav-hdv heterogeneous traffic system with different car-following
+  modes,'' {\em IEEE Transactions on Intelligent Transportation Systems},
+  vol.~25, no.~10, pp.~12980--12998, 2024.
+
+\bibitem{Cen.2025}
+B.-l. Cen, Y.~Xue, K.~Zhang, L.~Jia, and H.-d. He, ``Study on traffic flows
+  with connected vehicles and human-driven vehicles,'' {\em Applied Mathematics
+  and Computation}, vol.~490, p.~129182, 2025.
+
+\end{thebibliography}

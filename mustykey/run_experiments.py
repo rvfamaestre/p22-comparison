@@ -22,6 +22,11 @@ import yaml
 
 from src.simulation.scenario_manager import ScenarioManager
 from src.utils.config import get_default_config, merge_config, validate_config
+from src.utils.string_stability_metrics import compute_string_stability_from_traces
+from src.utils.primary_objective import (
+    annotate_with_primary_objective,
+    SAFE_HEADWAY_M,
+)
 
 
 HUMAN_RATES = [1.0, 0.75, 0.5, 0.25, 0.0]
@@ -228,6 +233,15 @@ def compute_metrics(traces: pd.DataFrame, dt: float, mode: str) -> Dict[str, flo
         "mean_speed": float(np.mean(v)),
     }
 
+    # Mean speed over last 100 time steps
+    times = np.sort(traces["time"].unique())
+    last100_times = times[-min(100, len(times)):]
+    mask = traces["time"].isin(last100_times)
+    metrics["mean_speed_last100"] = float(traces.loc[mask, "v"].mean())
+
+    # Speed variance over last 100 time steps
+    metrics["speed_var_last100"] = float(np.var(traces.loc[mask, "v"].to_numpy()))
+
     # RMS jerk per vehicle
     jerk_vals = []
     for _, g in traces.groupby("vehicle_id"):
@@ -245,6 +259,44 @@ def compute_metrics(traces: pd.DataFrame, dt: float, mode: str) -> Dict[str, flo
         metrics["headway_effective_mean"] = float(cav["headway_hc_effective"].mean())
 
     return metrics
+
+
+def compute_run_string_stability(
+    traces: pd.DataFrame,
+    cfg: Dict,
+    metadata: Dict,
+) -> Dict[str, object]:
+    """Compute string stability metrics for a single run."""
+    perturbation_enabled = cfg.get("perturbation_enabled", False)
+    perturb_vehicle = cfg.get("perturbation_vehicle", 0)
+    perturbation_time = cfg.get("perturbation_time", 3.0)
+    collision_clamp_count = int(metadata.get("collision_clamp_count", 0))
+
+    return compute_string_stability_from_traces(
+        traces,
+        perturb_vehicle_id=perturb_vehicle,
+        perturbation_time=perturbation_time,
+        valid_base=(collision_clamp_count == 0),
+        applicable=perturbation_enabled,
+    )
+
+
+def compute_safety_and_objective(
+    metrics: Dict[str, object],
+    metadata: Dict,
+) -> Dict[str, object]:
+    """Annotate metrics with safety constraints and primary objective."""
+    metrics["collision_count"] = int(metadata.get("collision_count", 0))
+    metrics["collision_clamp_count"] = int(metadata.get("collision_clamp_count", 0))
+
+    return annotate_with_primary_objective(
+        metrics,
+        min_gap_key="min_gap",
+        min_gap_threshold=SAFE_HEADWAY_M,
+        collision_count_key="collision_count",
+        collision_clamp_count_key="collision_clamp_count",
+        string_stability_key="string_stability_is_stable",
+    )
 
 
 # ----------------------------
@@ -344,6 +396,11 @@ def write_summary_by_human_rate(summary_runs: pd.DataFrame, out_dir: Path) -> Pa
         "rms_acc",
         "rms_jerk",
         "mean_speed",
+        "mean_speed_last100",
+        "speed_var_last100",
+        "collision_count",
+        "collision_clamp_count",
+        "string_stability_value",
     ]
     adaptive_cols = ["alpha_mean", "alpha_std", "headway_effective_mean"]
     for col in adaptive_cols:
@@ -426,8 +483,20 @@ def main() -> None:
 
                 dt = float(cfg["dt"])
                 metrics = compute_metrics(traces, dt, mode)
+
+                # Load metadata for collision counts
+                with open(metadata_json, "r", encoding="utf-8") as f:
+                    metadata = json.load(f)
+
+                # String stability
+                ss_metrics = compute_run_string_stability(traces, cfg, metadata)
+                metrics.update(ss_metrics)
+
+                # Safety constraints and primary objective
+                metrics = compute_safety_and_objective(metrics, metadata)
+
                 with open(run_dir / "metrics.json", "w", encoding="utf-8") as f:
-                    json.dump(metrics, f, indent=2)
+                    json.dump(metrics, f, indent=2, default=str)
 
                 plot_speed_traces(traces, run_dir)
                 plot_spacetime_heatmap(traces, run_dir)
@@ -484,6 +553,32 @@ def main() -> None:
         ylabel="RMS Jerk [m/s^3]",
         filename="rms_jerk_vs_cavshare.png",
     )
+    plot_summary_metric(
+        summary_by,
+        metric="mean_speed_last100",
+        out_dir=summary_plots_dir,
+        title="Mean Speed (Last 100 Steps) vs CAV Share",
+        ylabel="Mean Speed [m/s]",
+        filename="mean_speed_last100_vs_cavshare.png",
+    )
+    if "string_stability_value_mean" in summary_by.columns:
+        plot_summary_metric(
+            summary_by,
+            metric="string_stability_value",
+            out_dir=summary_plots_dir,
+            title="String Stability (Amplification Ratio) vs CAV Share",
+            ylabel="Amplification Ratio",
+            filename="string_stability_vs_cavshare.png",
+        )
+    if "collision_count_mean" in summary_by.columns:
+        plot_summary_metric(
+            summary_by,
+            metric="collision_count",
+            out_dir=summary_plots_dir,
+            title="Collision Count vs CAV Share",
+            ylabel="Collision Count",
+            filename="collision_count_vs_cavshare.png",
+        )
 
 
 if __name__ == "__main__":

@@ -8,39 +8,66 @@ import zipfile
 from pathlib import Path
 from xml.sax.saxutils import escape
 
+import sys
+from pathlib import Path as _Path
+
+# Ensure the project root is importable
+sys.path.insert(0, str(_Path(__file__).resolve().parent.parent))
+
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
+from src.utils.string_stability_metrics import compute_string_stability_from_traces
+from src.utils.primary_objective import (
+    annotate_with_primary_objective,
+    SAFE_HEADWAY_M,
+)
+
 
 METRIC_COLUMNS = [
     "mean_speed",
+    "mean_speed_last100",
     "speed_variance",
+    "speed_var_last100",
     "rms_acc",
     "rms_jerk",
     "min_gap",
     "collision_count",
     "collision_clamp_count",
+    "string_stability_value",
+    "safety_min_gap_ok",
+    "safety_constraint_satisfied",
 ]
 
 METRIC_LABELS = {
     "mean_speed": "Mean Speed",
+    "mean_speed_last100": "Mean Speed (Last 100)",
     "speed_variance": "Speed Variance",
+    "speed_var_last100": "Speed Var (Last 100)",
     "rms_acc": "RMS Acc",
     "rms_jerk": "RMS Jerk",
     "min_gap": "Min Gap",
     "collision_count": "Collision Count",
     "collision_clamp_count": "Collision Clamp Count",
+    "string_stability_value": "Amplification Ratio",
+    "safety_min_gap_ok": "Min Gap Safe",
+    "safety_constraint_satisfied": "Safety Satisfied",
 }
 
 LOWER_IS_BETTER = {
     "mean_speed": False,
+    "mean_speed_last100": False,
     "speed_variance": True,
+    "speed_var_last100": True,
     "rms_acc": True,
     "rms_jerk": True,
     "min_gap": False,
     "collision_count": True,
     "collision_clamp_count": True,
+    "string_stability_value": True,
+    "safety_min_gap_ok": False,
+    "safety_constraint_satisfied": False,
 }
 
 TRAINING_METRICS = [
@@ -91,7 +118,7 @@ def read_json(path: Path) -> dict:
         return json.load(f)
 
 
-def compute_eval_metrics(micro_csv_path: Path, metadata_path: Path) -> dict[str, float]:
+def compute_eval_metrics(micro_csv_path: Path, metadata_path: Path, config_path: Path | None = None) -> dict[str, float]:
     df = pd.read_csv(micro_csv_path)
     metadata = read_json(metadata_path)
     dt = float(metadata["dt"])
@@ -106,15 +133,54 @@ def compute_eval_metrics(micro_csv_path: Path, metadata_path: Path) -> dict[str,
             jerk = np.diff(acc_hist) / dt
             jerk_sq_means.append(np.mean(jerk ** 2))
 
-    return {
+    # Mean speed over last 100 time steps
+    times = np.sort(df["t"].unique())
+    last100_times = times[-min(100, len(times)):]
+    mask_last100 = df["t"].isin(last100_times)
+
+    metrics = {
         "mean_speed": float(np.mean(v)),
+        "mean_speed_last100": float(df.loc[mask_last100, "v"].mean()),
         "speed_variance": float(np.var(v)),
+        "speed_var_last100": float(np.var(df.loc[mask_last100, "v"].to_numpy())),
         "rms_acc": float(np.sqrt(np.mean(a ** 2))),
         "rms_jerk": float(np.sqrt(np.mean(jerk_sq_means))) if jerk_sq_means else float("nan"),
         "min_gap": float(df["gap_s"].min()) if "gap_s" in df.columns else float("nan"),
         "collision_count": float(metadata.get("collision_count", 0.0)),
         "collision_clamp_count": float(metadata.get("collision_clamp_count", 0.0)),
     }
+
+    # String stability (if config available with perturbation info)
+    cfg = {}
+    if config_path is not None and config_path.is_file():
+        import yaml
+        with open(config_path, "r", encoding="utf-8") as f:
+            cfg = yaml.safe_load(f) or {}
+
+    perturbation_enabled = cfg.get("perturbation_enabled", False)
+    if perturbation_enabled and "gap_s" in df.columns:
+        # Build minimal traces DataFrame with expected column names
+        traces = df.rename(columns={"t": "time", "id": "vehicle_id"})
+        ss_result = compute_string_stability_from_traces(
+            traces,
+            perturb_vehicle_id=int(cfg.get("perturbation_vehicle", 0)),
+            perturbation_time=float(cfg.get("perturbation_time", 3.0)),
+            valid_base=(int(metadata.get("collision_clamp_count", 0)) == 0),
+            applicable=True,
+        )
+        metrics.update(ss_result)
+
+    # Safety and primary objective annotation
+    metrics = annotate_with_primary_objective(
+        metrics,
+        min_gap_key="min_gap",
+        min_gap_threshold=SAFE_HEADWAY_M,
+        collision_count_key="collision_count",
+        collision_clamp_count_key="collision_clamp_count",
+        string_stability_key="string_stability_is_stable",
+    )
+
+    return metrics
 
 
 def collect_eval_rows(base_output: Path, methods: list[str], human_ratios: list[float]) -> pd.DataFrame:
@@ -126,12 +192,14 @@ def collect_eval_rows(base_output: Path, methods: list[str], human_ratios: list[
             micro_csv = run_dir / "micro.csv"
             metadata_json = run_dir / "metadata.json"
 
+            config_effective = run_dir / "config_effective.yml"
+
             if not micro_csv.is_file():
                 raise FileNotFoundError(f"Missing evaluation micro.csv: {micro_csv}")
             if not metadata_json.is_file():
                 raise FileNotFoundError(f"Missing evaluation metadata.json: {metadata_json}")
 
-            metrics = compute_eval_metrics(micro_csv, metadata_json)
+            metrics = compute_eval_metrics(micro_csv, metadata_json, config_effective)
             row = {
                 "method": method,
                 "human_ratio": human_ratio,
@@ -397,13 +465,19 @@ def plot_eval_metric(df: pd.DataFrame, metric: str, output_path: Path) -> None:
 def plot_overview(df: pd.DataFrame, output_path: Path) -> None:
     metrics = [
         "mean_speed",
+        "mean_speed_last100",
         "speed_variance",
         "rms_acc",
-        "rms_jerk",
         "min_gap",
         "collision_count",
+        "string_stability_value",
+        "rms_jerk",
     ]
-    fig, axes = plt.subplots(2, 3, figsize=(14, 8))
+    # Filter to metrics actually present in the dataframe
+    metrics = [m for m in metrics if m in df.columns]
+    ncols = min(len(metrics), 4)
+    nrows = math.ceil(len(metrics) / ncols)
+    fig, axes = plt.subplots(nrows, ncols, figsize=(4 * ncols, 4 * nrows))
     axes = axes.flatten()
 
     methods = list(df["method"].unique())
@@ -532,9 +606,11 @@ def write_markdown_report(
         lines.append("")
     lines.append("## Evaluation Summary")
     lines.append("")
-    lines.append("| Method | Tag | Human Ratio | Mean Speed | Speed Variance | RMS Acc | RMS Jerk | Min Gap | Collision Count | Collision Clamp Count |")
-    lines.append("| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |")
+    lines.append("| Method | Tag | HR | Mean Spd | Mean Spd L100 | Spd Var | Spd Var L100 | RMS Acc | RMS Jerk | Min Gap | Collisions | Clamps | Amp. Ratio | Safety |")
+    lines.append("| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |")
     for _, row in eval_df.iterrows():
+        amp_ratio = format_float(float(row["string_stability_value"])) if "string_stability_value" in row and pd.notnull(row.get("string_stability_value")) else "n/a"
+        safety = str(row.get("safety_constraint_satisfied", "n/a"))
         lines.append(
             "| "
             + " | ".join(
@@ -543,12 +619,16 @@ def write_markdown_report(
                     str(row["tag"]),
                     f"{float(row['human_ratio']):.2f}",
                     format_float(float(row["mean_speed"])),
+                    format_float(float(row.get("mean_speed_last100", float("nan")))),
                     format_float(float(row["speed_variance"])),
+                    format_float(float(row.get("speed_var_last100", float("nan")))),
                     format_float(float(row["rms_acc"])),
                     format_float(float(row["rms_jerk"])),
                     format_float(float(row["min_gap"])),
                     str(int(row["collision_count"])),
                     str(int(row["collision_clamp_count"])),
+                    amp_ratio,
+                    safety,
                 ]
             )
             + " |"

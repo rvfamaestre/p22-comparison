@@ -2,7 +2,27 @@
   "permissions": {
     "allow": [
       "Bash(ls -la rafa/*.py)",
-      "Bash(ls -la mustykey/*.py)"
+      "Bash(ls -la mustykey/*.py)",
+      "Bash(find /c/Users/radam/Documents/VSC/centralesupelec/pole-projet/p22-comparison/rafa -type f -name *.md -o -name *.csv -o -name *.txt -o -name *.log)",
+      "Bash(find /c/Users/radam/Documents/VSC/centralesupelec/pole-projet/p22-comparison/mustykey -type f -name *.csv -o -name *.txt -o -name *.md -o -name *.json -o -name *.log)",
+      "Bash(find /c/Users/radam/Documents/VSC/centralesupelec/pole-projet/p22-comparison/rafa -name *.json -type f)",
+      "Bash(ls -lh /c/Users/radam/Documents/VSC/centralesupelec/pole-projet/p22-comparison/rafa/*.py)",
+      "Bash(ls -lh /c/Users/radam/Documents/VSC/centralesupelec/pole-projet/p22-comparison/mustykey/*.py)",
+      "Bash(ls -lh /c/Users/radam/Documents/VSC/centralesupelec/pole-projet/p22-comparison/mustykey/src/*/)",
+      "Bash(find /c/Users/radam/Documents/VSC/centralesupelec/pole-projet/p22-comparison/rafa/src -name \"*.py\" -type f -exec wc -l {} +)",
+      "Bash(find /c/Users/radam/Documents/VSC/centralesupelec/pole-projet/p22-comparison/mustykey/src -name \"*.py\" -type f -exec wc -l {} +)",
+      "Bash(find /c/Users/radam/Documents/VSC/centralesupelec/pole-projet/p22-comparison/rafa -maxdepth 1 -name \"*.py\" -type f -exec wc -l {} +)",
+      "Bash(find /c/Users/radam/Documents/VSC/centralesupelec/pole-projet/p22-comparison/mustykey -maxdepth 1 -name \"*.py\" -type f -exec wc -l {} +)",
+      "Bash(xargs grep:*)",
+      "Bash(python -c \"from src.utils.early_stopping import EarlyStoppingConfig, EarlyStopMonitor; print\\(''early_stopping OK''\\)\")",
+      "Bash(python -c \"from src.utils.string_stability_metrics import compute_string_stability_from_traces; print\\(''string_stability OK''\\)\")",
+      "Bash(pip list:*)",
+      "Bash(pip install:*)",
+      "Bash(python -c \"from src.utils.primary_objective import annotate_with_primary_objective, SAFE_HEADWAY_M; print\\(''primary_objective OK''\\)\")",
+      "Bash(python -c \"import ast; ast.parse\\(open\\(''run_training.py''\\).read\\(\\)\\); print\\(''run_training.py syntax OK''\\)\")",
+      "Bash(python -c \"import ast; ast.parse\\(open\\(''run_experiments.py''\\).read\\(\\)\\); print\\(''run_experiments.py syntax OK''\\)\")",
+      "Bash(python -c \"import ast; ast.parse\\(open\\(''scripts/build_rl_comparison_report.py''\\).read\\(\\)\\); print\\(''build_rl_comparison_report.py syntax OK''\\)\")",
+      "Bash(python -c \":*)"
     ]
   }
 }
