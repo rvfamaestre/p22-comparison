@@ -1,0 +1,7 @@
+# Optional extras not required for the current train/eval/report workflow.
+# Install these only if you actually use those features.
+
+torch-geometric>=2.4.0
+torch-scatter>=2.1.0
+torch-sparse>=0.6.0
+tensorboard>=2.14.0
