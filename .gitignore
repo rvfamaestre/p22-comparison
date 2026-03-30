@@ -1,5 +1,10 @@
 __pycache__/
 *.pyc
 *.pyo
+*.aux
+*.log
+*.out
+*.synctex.gz
+*.toc
 output/
 DCE_GPU_PIPELINE.md
