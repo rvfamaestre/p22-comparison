@@ -448,6 +448,11 @@ class VecRingRoadEnv:
 
         s_des = cfg.cth_d0 + alpha * self.v
         spacing_error = s - s_des
+        leader_idx = self._leader_idx
+        leader_gap = s.gather(1, leader_idx)
+        leader_v = self.v.gather(1, leader_idx)
+        leader_alpha = alpha.gather(1, leader_idx)
+        leader_spacing_error = leader_gap - (cfg.cth_d0 + leader_alpha * leader_v)
         tau = s / self.v.clamp(min=cfg.reward_epsilon_v)
         jerk = (acc - self.a_prev) / max(cfg.dt, 1e-6)
 
@@ -464,7 +469,9 @@ class VecRingRoadEnv:
         reward = reward - cfg.reward_w_j * (
             jerk / max(cfg.reward_j_ref, 1e-3)
         ).pow(2)
-        reward = reward - cfg.reward_w_ss * spacing_error.abs()
+        reward = reward - cfg.reward_w_ss * (
+            spacing_error.abs() - leader_spacing_error.abs()
+        ).clamp(min=0.0)
         reward = reward - cfg.reward_w_sigma2 * sigma_v_sq
         return torch.where(self.is_cav, reward, torch.zeros_like(reward))
 

@@ -25,12 +25,17 @@ from src.gpu import (
 )
 from src.utils.config_manager import ConfigManager
 from src.utils.early_stopping import EarlyStoppingConfig, EarlyStopMonitor
+from src.utils.primary_objective import compute_training_objective
+from src.utils.string_stability_metrics import compute_string_stability_from_traces
 from src.simulation.scenario_manager import ScenarioManager
 from src.mesoscopic.rl_training import PPOTrainer
 from src.mesoscopic.sac_training import SACTrainer
 
 
 METRIC_KEYS = (
+    "training_objective",
+    "string_stability_value",
+    "collision_clamp_count",
     "speed_var_global",
     "speed_std_time_mean",
     "oscillation_amplitude",
@@ -45,7 +50,16 @@ METRIC_KEYS = (
 # -------------------------------------------------------------
 # Traffic evaluation metrics
 # -------------------------------------------------------------
-def compute_metrics(df, dt):
+def compute_metrics(
+    df,
+    dt,
+    *,
+    perturbation_enabled: bool = False,
+    perturb_vehicle_id: int = 0,
+    perturbation_time: float = 0.0,
+    collision_count: int = 0,
+    collision_clamp_count: int = 0,
+):
     """Compute the scalar traffic metrics used for checkpoint selection."""
     v = df["v"].to_numpy()
     a = df["a"].to_numpy()
@@ -91,6 +105,43 @@ def compute_metrics(df, dt):
         metrics["min_gap"] = float(df["gap_s"].min())
     else:
         metrics["min_gap"] = np.nan
+
+    metrics["collision_count"] = int(collision_count)
+    metrics["collision_clamp_count"] = int(collision_clamp_count)
+    metrics["string_stability_value"] = float("nan")
+    metrics["string_stability_metric_valid"] = False
+
+    if perturbation_enabled:
+        traces = df.rename(columns={"t": "time", "id": "vehicle_id"})
+        stability_result = compute_string_stability_from_traces(
+            traces,
+            perturb_vehicle_id=int(perturb_vehicle_id),
+            perturbation_time=float(perturbation_time),
+            valid_base=(
+                int(collision_count) == 0
+                and int(collision_clamp_count) == 0
+            ),
+            applicable=True,
+        )
+        metrics["string_stability_value"] = float(
+            stability_result["string_stability_value"]
+        )
+        metrics["string_stability_metric_valid"] = bool(
+            stability_result["string_stability_metric_valid"]
+        )
+        metrics["string_stability_is_stable"] = bool(
+            stability_result["string_stability_is_stable"]
+        )
+
+    metrics["training_objective"] = compute_training_objective(
+        metrics,
+        min_gap_key="min_gap",
+        collision_count_key="collision_count",
+        collision_clamp_count_key="collision_clamp_count",
+        string_stability_value_key="string_stability_value",
+        string_stability_valid_key="string_stability_metric_valid",
+        fallback_metric_key="speed_std_time_mean",
+    )
 
     return metrics
 
@@ -272,11 +323,11 @@ def build_early_stopping_config(train_cfg, total_steps):
     es_cfg_dict = train_cfg.get("early_stopping", {})
     return EarlyStoppingConfig(
         enabled=es_cfg_dict.get("enabled", True),
-        metric=es_cfg_dict.get("metric", "speed_var_global"),
+        metric=es_cfg_dict.get("metric", "training_objective"),
         mode=es_cfg_dict.get("mode", "min"),
         patience=es_cfg_dict.get("patience", train_cfg.get("early_stop_patience", 20)),
         min_delta=es_cfg_dict.get("min_delta", 0.001),
-        start_step=es_cfg_dict.get("start_step", max(total_steps // 4, 1)),
+        start_step=es_cfg_dict.get("start_step", 0),
         min_checks=es_cfg_dict.get("min_checks", 4),
         ema_alpha=es_cfg_dict.get("ema_alpha", 0.3),
         restore_best=es_cfg_dict.get("restore_best", True),
@@ -344,9 +395,22 @@ def run_cpu_training(
             print("[Training] WARNING: No transitions collected, skipping RL update")
 
         micro_file = os.path.join(config["output_path"], "micro.csv")
+        metadata_file = os.path.join(config["output_path"], "metadata.json")
         if os.path.isfile(micro_file):
             df = pd.read_csv(micro_file)
-            metrics = compute_metrics(df, dt)
+            metadata = {}
+            if os.path.isfile(metadata_file):
+                with open(metadata_file, "r", encoding="utf-8") as f:
+                    metadata = json.load(f)
+            metrics = compute_metrics(
+                df,
+                dt,
+                perturbation_enabled=bool(config.get("perturbation_enabled", False)),
+                perturb_vehicle_id=int(config.get("perturbation_vehicle", 0)),
+                perturbation_time=float(config.get("perturbation_time", 0.0)),
+                collision_count=int(metadata.get("collision_count", 0)),
+                collision_clamp_count=int(metadata.get("collision_clamp_count", 0)),
+            )
             for key in metrics_history:
                 metrics_history[key].append(metrics[key])
 
@@ -514,8 +578,22 @@ def run_vectorized_training(
         if trainer_info:
             print(f"[Training] Update summary: {trainer_info}")
 
-        batch_metrics = compute_episode_metrics(speed_trace, acc_trace, gap_trace, env_cfg.dt)
-        metrics = {key: float(values.mean().item()) for key, values in batch_metrics.items()}
+        batch_metrics = compute_episode_metrics(
+            speed_trace,
+            acc_trace,
+            gap_trace,
+            env_cfg.dt,
+            perturbation_enabled=env_cfg.perturbation_enabled,
+            perturbation_time=env_cfg.perturbation_time,
+            perturb_vehicle_ids=env.perturb_target,
+            collision_clamp_count=env.collision_clamp_count,
+        )
+        metrics = {}
+        for key, values in batch_metrics.items():
+            if torch.isnan(values).all():
+                metrics[key] = float("nan")
+            else:
+                metrics[key] = float(torch.nanmean(values).item())
         for key in metrics_history:
             metrics_history[key].append(metrics[key])
 

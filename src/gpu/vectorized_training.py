@@ -13,6 +13,11 @@ from torch.nn.utils import clip_grad_norm_
 from src.mesoscopic.rl_common import RunningMeanStd
 from src.mesoscopic.rl_layer import ActorCritic
 from src.mesoscopic.sac_training import QNetwork, SACActor
+from src.utils.primary_objective import compute_training_objective
+from src.utils.string_stability_metrics import (
+    compute_string_stability_from_ordered_series,
+    downstream_vehicle_order,
+)
 
 
 def resolve_torch_device(requested: str | None = "auto") -> torch.device:
@@ -29,8 +34,14 @@ def compute_episode_metrics(
     acc_trace: torch.Tensor,
     gap_trace: torch.Tensor,
     dt: float,
+    *,
+    perturbation_enabled: bool = False,
+    perturbation_time: float = 0.0,
+    perturb_vehicle_ids: torch.Tensor | None = None,
+    collision_clamp_count: torch.Tensor | None = None,
 ) -> dict[str, torch.Tensor]:
     """Match the scalar metrics used by run_training.py for a batched rollout."""
+    num_steps, num_envs, num_vehicles = speed_trace.shape
     speed_flat = speed_trace.permute(1, 0, 2).reshape(speed_trace.shape[1], -1)
     acc_flat = acc_trace.permute(1, 0, 2).reshape(acc_trace.shape[1], -1)
     gap_flat = gap_trace.permute(1, 0, 2).reshape(gap_trace.shape[1], -1)
@@ -43,11 +54,76 @@ def compute_episode_metrics(
     else:
         rms_jerk = torch.zeros(speed_trace.shape[1], device=speed_trace.device)
 
+    if perturb_vehicle_ids is None:
+        perturb_vehicle_ids = torch.zeros(num_envs, device=speed_trace.device, dtype=torch.long)
+    else:
+        perturb_vehicle_ids = perturb_vehicle_ids.to(device=speed_trace.device, dtype=torch.long)
+
+    if collision_clamp_count is None:
+        collision_clamp_count = torch.zeros(num_envs, device=speed_trace.device)
+    else:
+        collision_clamp_count = collision_clamp_count.to(device=speed_trace.device, dtype=torch.float32)
+
+    string_stability_value = torch.full(
+        (num_envs,),
+        float("nan"),
+        device=speed_trace.device,
+    )
+    training_objective = torch.zeros(num_envs, device=speed_trace.device)
+
+    times = dt * (np.arange(num_steps, dtype=float) + 1.0)
+    perturbation_step = int(np.searchsorted(times, float(perturbation_time), side="left"))
+
+    speed_np = speed_trace.detach().cpu().numpy()
+    gap_np = gap_trace.detach().cpu().numpy()
+    speed_std_time_mean = speed_trace.std(dim=2, unbiased=False).mean(dim=0)
+    min_gap = gap_flat.amin(dim=1)
+
+    for env_idx in range(num_envs):
+        perturb_vehicle_id = int(perturb_vehicle_ids[env_idx].item())
+        ordered_vehicle_ids = downstream_vehicle_order(
+            list(range(num_vehicles)),
+            perturb_vehicle_id,
+        )
+        stability_result = compute_string_stability_from_ordered_series(
+            speed_np[:, env_idx, ordered_vehicle_ids],
+            perturbation_step=perturbation_step,
+            valid_base=(int(collision_clamp_count[env_idx].item()) == 0),
+            applicable=bool(perturbation_enabled),
+            gap_series=gap_np[:, env_idx, ordered_vehicle_ids],
+        )
+
+        string_value = float(stability_result["string_stability_value"])
+        if np.isfinite(string_value):
+            string_stability_value[env_idx] = string_value
+
+        training_objective[env_idx] = float(
+            compute_training_objective(
+                {
+                    "min_gap": float(min_gap[env_idx].item()),
+                    "collision_clamp_count": float(collision_clamp_count[env_idx].item()),
+                    "string_stability_value": string_value,
+                    "string_stability_metric_valid": bool(
+                        stability_result["string_stability_metric_valid"]
+                    ),
+                    "speed_std_time_mean": float(speed_std_time_mean[env_idx].item()),
+                },
+                min_gap_key="min_gap",
+                collision_clamp_count_key="collision_clamp_count",
+                string_stability_value_key="string_stability_value",
+                string_stability_valid_key="string_stability_metric_valid",
+                fallback_metric_key="speed_std_time_mean",
+            )
+        )
+
     return {
+        "training_objective": training_objective,
         "speed_var_global": speed_flat.var(dim=1, unbiased=False),
-        "speed_std_time_mean": speed_trace.std(dim=2, unbiased=False).mean(dim=0),
+        "speed_std_time_mean": speed_std_time_mean,
         "oscillation_amplitude": speed_trace.amax(dim=(0, 2)) - speed_trace.amin(dim=(0, 2)),
-        "min_gap": gap_flat.amin(dim=1),
+        "min_gap": min_gap,
+        "collision_clamp_count": collision_clamp_count,
+        "string_stability_value": string_stability_value,
         "rms_acc": torch.sqrt(acc_flat.pow(2).mean(dim=1)),
         "rms_jerk": rms_jerk,
         "mean_speed": speed_flat.mean(dim=1),

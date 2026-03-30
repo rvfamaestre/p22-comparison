@@ -71,10 +71,10 @@ LOWER_IS_BETTER = {
 }
 
 TRAINING_METRICS = [
+    "training_objective",
     "speed_var_global",
-    "mean_speed",
-    "rms_acc",
-    "rms_jerk",
+    "collision_clamp_count",
+    "string_stability_value",
     "min_gap",
 ]
 
@@ -263,9 +263,10 @@ def collect_training_rows(base_output: Path, methods: list[str]) -> tuple[pd.Dat
         history = read_json(metrics_path)
         histories[method] = history
 
-        primary_curve = history.get("speed_var_global", [])
+        primary_metric = "training_objective" if history.get("training_objective", []) else "speed_var_global"
+        primary_curve = history.get(primary_metric, [])
         if not primary_curve:
-            raise ValueError(f"speed_var_global missing or empty in {metrics_path}")
+            raise ValueError(f"{primary_metric} missing or empty in {metrics_path}")
 
         best_idx = int(np.argmin(primary_curve))
         best_episode = best_idx + 1
@@ -274,12 +275,13 @@ def collect_training_rows(base_output: Path, methods: list[str]) -> tuple[pd.Dat
         rows.append(
             {
                 "method": method,
+                "primary_metric": primary_metric,
                 "episodes_completed": len(primary_curve),
                 "best_episode": best_episode,
-                "best_speed_variance": float(primary_curve[best_idx]),
-                "final_speed_variance": float(primary_curve[-1]),
-                "last10_mean_speed_variance": float(np.mean(last_window)),
-                "last10_std_speed_variance": float(np.std(last_window)),
+                "best_primary_value": float(primary_curve[best_idx]),
+                "final_primary_value": float(primary_curve[-1]),
+                "last10_mean_primary_value": float(np.mean(last_window)),
+                "last10_std_primary_value": float(np.std(last_window)),
                 "runtime_seconds": parse_duration_seconds(duration_path),
             }
         )
@@ -548,10 +550,11 @@ def plot_training_metric(histories: dict[str, dict[str, list[float]]], metric: s
 
 
 def plot_training_overview(histories: dict[str, dict[str, list[float]]], output_path: Path) -> None:
-    fig, axes = plt.subplots(2, 3, figsize=(14, 8))
-    axes = axes.flatten()
-
     metrics = TRAINING_METRICS + ["speed_std_time_mean"]
+    ncols = min(len(metrics), 3)
+    nrows = math.ceil(len(metrics) / ncols)
+    fig, axes = plt.subplots(nrows, ncols, figsize=(4.5 * ncols, 3.8 * nrows))
+    axes = axes.flatten()
 
     for ax, metric in zip(axes, metrics):
         for method, history in sorted(histories.items()):
@@ -562,6 +565,9 @@ def plot_training_overview(histories: dict[str, dict[str, list[float]]], output_
             ax.plot(episodes, values, label=method.upper())
         ax.set_title(metric)
         ax.grid(alpha=0.25)
+
+    for ax in axes[len(metrics):]:
+        ax.axis("off")
 
     handles, labels = axes[0].get_legend_handles_labels()
     if handles:
@@ -608,20 +614,21 @@ def write_markdown_report(
     if not training_df.empty:
         lines.append("## Training Summary")
         lines.append("")
-        lines.append("| Method | Episodes | Best Episode | Best Speed Variance | Final Speed Variance | Last10 Mean | Last10 Std | Runtime (s) |")
-        lines.append("| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |")
+        lines.append("| Method | Primary Metric | Episodes | Best Episode | Best Value | Final Value | Last10 Mean | Last10 Std | Runtime (s) |")
+        lines.append("| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |")
         for _, row in training_df.iterrows():
             lines.append(
                 "| "
                 + " | ".join(
                     [
                         str(row["method"]),
+                        str(row["primary_metric"]),
                         str(int(row["episodes_completed"])),
                         str(int(row["best_episode"])),
-                        format_float(float(row["best_speed_variance"])),
-                        format_float(float(row["final_speed_variance"])),
-                        format_float(float(row["last10_mean_speed_variance"])),
-                        format_float(float(row["last10_std_speed_variance"])),
+                        format_float(float(row["best_primary_value"])),
+                        format_float(float(row["final_primary_value"])),
+                        format_float(float(row["last10_mean_primary_value"])),
+                        format_float(float(row["last10_std_primary_value"])),
                         format_float(float(row["runtime_seconds"])) if pd.notnull(row["runtime_seconds"]) else "nan",
                     ]
                 )

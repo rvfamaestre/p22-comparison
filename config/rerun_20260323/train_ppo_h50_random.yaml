@@ -86,7 +86,7 @@ rl_training:
   entropy_coef: 0.001
   max_grad_norm: 0.5
   save_every: 20
-  early_stop_patience: 199
+  early_stop_patience: 5
   reward:
     s_min: 2.0
     tau_min: 0.6

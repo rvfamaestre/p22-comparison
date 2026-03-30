@@ -80,7 +80,7 @@ rl_training:
   clip: 0.2
   train_epochs: 10
   save_every: 20
-  early_stop_patience: 199
+  early_stop_patience: 5
   reward:
     s_min: 2.0
     tau_min: 0.6
