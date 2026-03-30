@@ -1,82 +1,51 @@
-\section{Current Progress, Results and Perspectives}
+\section{Experimental Results and Perspectives}
 
-The project is now presented around a single main implementation, \texttt{mustykey}. The recent work kept only the elements that are directly useful for the current workflow on the DCE cluster: GPU-assisted training for faster experiments, checkpoint restoration, and a cleaner evaluation export. The parallel \texttt{rafa} branch is not part of the main report anymore.
+\subsection{Protocol and admissibility fix}
 
-\subsection{Current status}
+The experiment targets the 50\,\% human-driver regime on a ring road with $N{=}22$ vehicles ($L{=}300$\,m). Three methods are compared: the rule-based mesoscopic adaptation alone (\textbf{No~RL}), and two residual RL policies (\textbf{PPO}, \textbf{SAC}) trained on top of it. Each episode starts from random initial conditions; a velocity perturbation ($\Delta v = {-}3$\,m/s) is applied at $t{=}12$\,s after a 10\,s warm-up. The primary metric is the \emph{string-stability amplification ratio}: the maximum downstream-to-source speed-error ratio, where a value below~1 indicates disturbance attenuation.
 
-The latest campaign was run on the CentraleSup\'elec DCE infrastructure with an NVIDIA RTX~2080~Ti. Training used the vectorized backend, while evaluation still used the standard simulation path so that testing remained aligned with the controller used at inference time.
+A critical protocol bug was found and fixed before this campaign. The random initialization computed minimum inter-vehicle spacing without accounting for vehicle length ($\ell{=}5$\,m), producing net bumper-to-bumper gaps as low as 0\,m. Combined with a warm-up that also capped braking, every prior run suffered collision-clamp events \emph{before} the perturbation, invalidating string-stability. The fix added vehicle length to the spacing bound, clamped initial closing rates to be kinematically safe, and allowed unrestricted braking during warm-up. After the fix, 50/50 random seeds produced zero pre-perturbation clamps.
 
-The campaign contains two training runs at 50\,\% human drivers, one with PPO and one with SAC, plus nine evaluation runs: No~RL, PPO, and SAC, each tested at 25\,\%, 50\,\%, and 75\,\% human-driver ratios. With 8 parallel environments, 25 training batches correspond to 200 physical episodes.
+\subsection{Results}
 
-\begin{table}[!htbp]
-\centering
-\caption{Compact summary of the two training runs.}
-\label{tab:training_summary_updated}
-\small
-\begin{tabular}{lcccc}
-\hline
-Method & Batches & Best batch & Best variance & Final variance \\
-\hline
-PPO & 25 & 9 & 1.471 & 1.877 \\
-SAC & 25 & 3 & 1.530 & 1.762 \\
-\hline
-\end{tabular}
-\end{table}
+Both RL methods early-stopped quickly (PPO at episode~15, SAC at~21), with best checkpoints at episodes~4 and~6. This reflects the limited residual authority ($|\Delta\alpha| \leq 0.1$): the policy reaches its useful range almost immediately and subsequent updates add noise. Zero collision clamps were observed throughout training, confirming the initialization fix.
 
-The main observation from Table~\ref{tab:training_summary_updated} is simple: in both cases the best checkpoint appeared early. This means that the added checkpoint logic is useful, but the current patience setting is still too loose for such a short training campaign.
-
-\subsection{Evaluation results}
-
-For the report, we do not rely on a single ``top metric''. Mean speed over the last 100 steps is useful because it focuses on the stabilized regime, but it should be read together with late-run variance and safety indicators. Otherwise, a small speed gain can hide the fact that the traffic remains unsafe or too oscillatory.
+Table~\ref{tab:eval_results} presents the evaluation. All three runs are fully admissible: zero collisions, zero clamps, perturbation correctly applied, and valid string-stability measurement.
 
 \begin{table}[!htbp]
 \centering
-\caption{Key evaluation metrics used in the discussion.}
-\label{tab:eval_results_updated}
+\caption{Evaluation at 50\,\% human ratio. All runs admissible. Bold = best per column.}
+\label{tab:eval_results}
 \small
-\begin{tabular}{llcccc}
+\begin{tabular}{lcccccc}
 \hline
-HR & Method & Mean speed$_{100}$ & Var$_{100}$ & Min gap & Clamps \\
- &  & (m/s) & (m$^2$/s$^2$) & (m) &  \\
+Method & Amp.\ ratio & Var$_{100}$ & Mean spd$_{100}$ & RMS acc & Min gap & Clamps \\
+       & (--)  & (m$^2$/s$^2$) & (m/s) & (m/s$^2$) & (m) &  \\
 \hline
-\multirow{3}{*}{25\,\%}
- & No RL & \textbf{5.175} & 0.0098 & 0.510 & 3 \\
- & PPO   & 4.974 & 0.0185 & 0.510 & 3 \\
- & SAC   & 5.164 & \textbf{0.0063} & 0.510 & 3 \\
-\hline
-\multirow{3}{*}{50\,\%}
- & No RL & 4.716 & 1.142 & 0.510 & 3 \\
- & PPO   & 4.717 & 0.993 & 0.510 & 3 \\
- & SAC   & \textbf{4.719} & \textbf{0.968} & 0.510 & 3 \\
-\hline
-\multirow{3}{*}{75\,\%}
- & No RL & \textbf{2.887} & 3.718 & 0.307 & 4 \\
- & PPO   & 2.880 & \textbf{3.666} & \textbf{0.345} & \textbf{3} \\
- & SAC   & 2.866 & 3.777 & 0.300 & 5 \\
+No RL & 0.873 & 0.517 & \textbf{4.408} & \textbf{0.399} & 2.875 & \textbf{0} \\
+PPO   & 0.881 & 0.687 & 4.183 & 0.403 & 2.929 & \textbf{0} \\
+SAC   & \textbf{0.873} & \textbf{0.482} & 4.325 & 0.425 & \textbf{2.957} & \textbf{0} \\
 \hline
 \end{tabular}
 \end{table}
 
 \begin{figure}[!htbp]
     \centering
-    \includegraphics[width=\textwidth]{images/results/overview_comparison.png}
-    \caption{White-background summary of the two metrics that are the easiest to compare across regimes: stabilized mean speed and stabilized speed variance. The figure is informative only when read together with the safety indicators in Table~\ref{tab:eval_results_updated}.}
-    \label{fig:key_results_summary}
+    \includegraphics[width=0.85\textwidth]{images/results/overview_comparison.png}
+    \caption{Bar comparison of evaluation metrics. SAC achieves the lowest late-regime speed variance and the largest minimum gap.}
+    \label{fig:eval_overview}
 \end{figure}
 
 \subsection{Interpretation}
 
-Three conclusions are enough to summarize the current state. First, 25\,\% human drivers is already an easy regime for the baseline controller, so RL has little room to improve the result. SAC slightly lowers the late-run variance, but not enough to justify a strong claim. Second, 50\,\% human drivers is the only regime where learning produces a clear benefit: SAC gives the best compromise, with a lower stabilized variance and essentially unchanged stabilized mean speed. Third, 75\,\% human drivers remains unresolved. PPO is slightly less bad than the other methods, but every controller still triggers collision clamps.
+\textbf{The mesoscopic baseline is already strong.} With an amplification ratio of~0.873, the rule-based adaptation alone produces string-stable flow, validating the control architecture independently of learning.
 
-The most important limitation is therefore not training speed anymore but result credibility. These experiments come from a single evaluation seed, so they are useful for matched-condition comparison, not for a general scientific claim. In practice, the next step should not be ``train longer'' by default. It should be ``evaluate the saved checkpoints on several unseen seeds and then decide whether retraining is needed''.
+\textbf{The RL residual has limited marginal impact.} SAC matches the baseline on the primary metric while reducing late-regime speed variance by 7\,\% and improving the minimum gap. PPO performs slightly worse than the baseline, consistent with lower sample efficiency in a low-authority regime. With only ${\pm}10\,\%$ headway modulation, neither algorithm deviates far from the rule-based policy.
 
-\subsection{Future perspectives}
+\textbf{SAC outperforms PPO.} Across all secondary metrics (speed variance, minimum gap), SAC is consistently better. Its entropy-regularised objective appears better suited to continuous-action tasks with limited exploration budgets.
 
-\begin{itemize}
-    \item run a multi-seed evaluation of the saved PPO and SAC checkpoints before launching any new long training campaign;
-    \item tighten the early-stopping patience so that it matches a 25-batch training run instead of acting only as passive logging;
-    \item strengthen the safety treatment during learning, because the present soft-penalty design is not sufficient in the 75\,\% human-driver regime;
-    \item revisit the reporting logic so that no single objective metric is presented as decisive without the corresponding safety context.
-\end{itemize}
+\textbf{The protocol is now valid.} Unlike all prior campaigns, this run satisfies the admissibility gate, making the comparison scientifically meaningful for the first time.
 
-At this stage, the project already supports one clear statement: the residual RL controller is promising in the intermediate mixed-traffic regime, but the difficult high-HDV case still requires a safer formulation and a stronger validation protocol.
+\subsection{Future work}
+
+The most immediate next step is \textbf{multi-seed evaluation} (10--20 seeds) to distinguish genuine method differences from seed artefacts. Beyond that, \textbf{increasing the RL authority} ($|\Delta\alpha|$ from 0.1 to 0.2--0.3) would give the policy more room to differentiate from the baseline. The campaign should also be extended to \textbf{25\,\% and 75\,\% penetration rates}, and training should move to the \textbf{GPU-vectorized backend} to enable longer runs with larger batch sizes.
